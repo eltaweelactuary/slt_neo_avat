@@ -428,12 +428,10 @@ def main():
                             node.quaternion.slerp(q, 0.5); 
                         }}
                         
-                        // --- ADVANCED HAND ORIENTATION SOLVER (Swing-Twist Decomposition) ---
+                        // --- PRO HAND SOLVER: SWING-TWIST & PALM NORMAL ---
                         function solveHandOrientation(node, p_wrist, p_index, p_middle, p_pinky, side) {{
                            if (!node || !p_wrist || !p_index || !p_middle || !p_pinky) return;
                            
-                           // Inputs: Arrays [x, y, z]
-                           // VRM/Three.js Logic: Flip Y and Z from MediaPipe World Space
                            const toVec3 = (a) => new THREE.Vector3(a[0], -a[1], -a[2]);
                            
                            const vWrist = toVec3(p_wrist);
@@ -441,42 +439,48 @@ def main():
                            const vMiddle = toVec3(p_middle);
                            const vPinky = toVec3(p_pinky);
 
-                           // 1. Calculate Basis Vectors
-                           // Main Axis (Dir): Wrist -> Middle. (The Bone Axis)
-                           const vDir = new THREE.Vector3().subVectors(vMiddle, vWrist).normalize(); 
-                           // Secondary Axis (Width): Index -> Pinky. (roughly perpendicular to Dir, defines the plane)
-                           const vWidth = new THREE.Vector3().subVectors(vPinky, vIndex).normalize();
+                           // 1. Hand Axis (Direction)
+                           const vDir = new THREE.Vector3().subVectors(vMiddle, vWrist);
+                           // 2. Hand Width (Index to Pinky)
+                           const vWidth = new THREE.Vector3().subVectors(vIndex, vPinky); // Note: Index -> Pinky
 
-                           // 2. SWING: Align Bone Main Axis to Target Direction
-                           // VRM T-Pose Standard: Left Arm points +X. Right Arm points -X.
-                           const defaultDir = new THREE.Vector3(side === 'left' ? 1 : -1, 0, 0);
-                           const qSwing = new THREE.Quaternion().setFromUnitVectors(defaultDir, vDir);
-                           
-                           // 3. TWIST: Align Palm Normal (Rotation around Main Axis)
-                           // VRM Standard T-Pose: Palm faces -Z (Forward). Thumb points +Y.
-                           // So Default Up (Palm Normal) is roughly -Z (for Left) or +Z (for Right maybe).
-                           // Let's assume Palm Faces -Z for both (Standard Forward).
-                           
-                           // Calculate Target Palm Normal from Landmarks: Cross(Dir, Width)
-                           // Note: Depending on hand side, this cross might point Up or Down relative to Palm.
-                           // Left Hand: Dir(+X), Width(-Y). Cross(X, -Y) = -Z. (Correct)
-                           // Right Hand: Dir(-X), Width(-Y). Cross(-X, -Y) = +Z. (Backwards to -Z).
-                           // However, if we negate it, we might be flipping it 180 wrong if the skeleton expects +Z.
-                           // Let's TRY natural direction first, removing the hard flip.
-                           const targetPalm = new THREE.Vector3().crossVectors(vDir, vWidth).normalize();
-                           
-                           // Calculate "Current" Palm Normal after Swing
-                           // (Start with Default Palm -Z and rotate it by qSwing)
-                           const defaultPalm = new THREE.Vector3(0, 0, -1);
-                           const currentPalm = defaultPalm.clone().applyQuaternion(qSwing);
+                           if (vDir.lengthSq() < 0.0001 || vWidth.lengthSq() < 0.0001) return;
+                           vDir.normalize();
+                           vWidth.normalize();
 
-                           // 4. Calculate Twist Quaternion
-                           const qTwist = new THREE.Quaternion().setFromUnitVectors(currentPalm, targetPalm);
+                           // 3. Palm Normal (Cross Product)
+                           // This vector points perpendicularly out of the palm
+                           const vNormal = new THREE.Vector3().crossVectors(vDir, vWidth).normalize();
+
+                           // 4. Matrix Basis Construction
+                           // X=Width, Y=Normal, Z=Dir
+                           const matrix = new THREE.Matrix4();
                            
-                           // 5. Combine: Twist * Swing
-                           const qFinal = qTwist.multiply(qSwing);
-                           
-                           node.quaternion.slerp(qFinal, 0.6);
+                           if (side === 'left') {{
+                               // Left Hand Matrix Construction
+                               matrix.makeBasis(vWidth, vNormal, vDir);
+                           }} else {{
+                               // Right Hand Mirroring
+                               // Flip Width Axis for symmetry
+                               const vWidthRight = vWidth.clone().negate();
+                               matrix.makeBasis(vWidthRight, vNormal, vDir);
+                           }}
+
+                           const qFinal = new THREE.Quaternion().setFromRotationMatrix(matrix);
+
+                           // 5. Apply
+                           node.quaternion.slerp(qFinal, 0.4);
+                        }}
+                        
+                        // --- NEUTRAL POSE (REST) ---
+                        function resetArmToRest(arm, forearm, side) {{
+                            if (!arm || !forearm) return;
+                            // Natural Rest: Arm Down (~70-80 deg), Forearm slightly bent
+                            const qArmDown = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, side === 'left' ? 1.4 : -1.4)); 
+                            arm.quaternion.slerp(qArmDown, 0.1);
+                            
+                            // Straighten elbow (Identity)
+                            forearm.quaternion.slerp(new THREE.Quaternion(), 0.1); 
                         }}
 
                         const fps = 30;
@@ -497,48 +501,75 @@ def main():
                                     timeAccumulator %= timePerFrame; // Reset accumulator safely
                                     
                                     const frame = DNA[frameIdx];
-                                    if (frame && frame.pose) {{
-                                        const pose = frame.pose;
+                                    if (frame) {{
                                         
-                                        // Helper Wrapper for Arrays
-                                        const getPoseLM = (idx) => (pose.length > idx*3) ? [pose[idx*3], pose[idx*3+1], pose[idx*3+2]] : [0,0,0];
-                                        const getLeftHandLM = (idx) => (frame.left_hand && frame.left_hand.length > idx*3) ? [frame.left_hand[idx*3], frame.left_hand[idx*3+1], frame.left_hand[idx*3+2]] : null;
-                                        const getRightHandLM = (idx) => (frame.right_hand && frame.right_hand.length > idx*3) ? [frame.right_hand[idx*3], frame.right_hand[idx*3+1], frame.right_hand[idx*3+2]] : null;
-
-                                        // --- RIGGING LOGIC ---
-                                        
-                                        // 1. Left Arm Chain (VRM: +X)
-                                        const leftArm = vrm.humanoid.getNormalizedBoneNode('leftUpperArm');
-                                        const leftForeArm = vrm.humanoid.getNormalizedBoneNode('leftLowerArm');
-                                        const leftHand = vrm.humanoid.getNormalizedBoneNode('leftHand');
-                                        
-                                        solveBoneRotation(leftArm, getPoseLM(11), getPoseLM(13), new THREE.Vector3(1, 0, 0));
-                                        solveBoneRotation(leftForeArm, getPoseLM(13), getPoseLM(15), new THREE.Vector3(1, 0, 0));
-                                        
-                                        if (leftHand && frame.left_hand && frame.left_hand.length > 0) {{ 
-                                            solveHandOrientation(leftHand, getLeftHandLM(0), getLeftHandLM(5), getLeftHandLM(9), getLeftHandLM(17), 'left');
+                                        // --- FACIAL EXPRESSIONS ---
+                                        if (frame.expressions && vrm.expressionManager) {{
+                                            const expr = frame.expressions;
+                                            // Apply BlendShapes (if supported by model)
+                                            vrm.expressionManager.setValue('happy', expr.happy || 0);
+                                            vrm.expressionManager.setValue('surprised', expr.surprised || 0);
+                                            vrm.expressionManager.setValue('angry', expr.angry || 0);
+                                            vrm.expressionManager.setValue('blink', expr.blink || 0);
                                         }}
 
-                                        // 2. Right Arm Chain (VRM: -X)
-                                        const rightArm = vrm.humanoid.getNormalizedBoneNode('rightUpperArm');
-                                        const rightForeArm = vrm.humanoid.getNormalizedBoneNode('rightLowerArm');
-                                        const rightHand = vrm.humanoid.getNormalizedBoneNode('rightHand');
+                                        if (frame.pose) {{
+                                            const pose = frame.pose;
+                                            // Helper Wrapper for Arrays
+                                            const getPoseLM = (idx) => (pose.length > idx*3) ? [pose[idx*3], pose[idx*3+1], pose[idx*3+2]] : [0,0,0];
+                                            const getLeftHandLM = (idx) => (frame.left_hand && frame.left_hand.length > idx*3) ? [frame.left_hand[idx*3], frame.left_hand[idx*3+1], frame.left_hand[idx*3+2]] : null;
+                                            const getRightHandLM = (idx) => (frame.right_hand && frame.right_hand.length > idx*3) ? [frame.right_hand[idx*3], frame.right_hand[idx*3+1], frame.right_hand[idx*3+2]] : null;
 
-                                        solveBoneRotation(rightArm, getPoseLM(12), getPoseLM(14), new THREE.Vector3(-1, 0, 0));
-                                        solveBoneRotation(rightForeArm, getPoseLM(14), getPoseLM(16), new THREE.Vector3(-1, 0, 0));
-                                        
-                                        // Update: Right hand checks both presence and length
-                                        if (rightHand && frame.right_hand && frame.right_hand.length > 0) {{
-                                             solveHandOrientation(rightHand, getRightHandLM(0), getRightHandLM(5), getRightHandLM(9), getRightHandLM(17), 'right');
-                                        }}
-                                        
-                                        // 3. Head Rotation
-                                        const head = vrm.humanoid.getNormalizedBoneNode('head');
-                                        if (head) {{
-                                            const leftEar = getPoseLM(7);
-                                            const rightEar = getPoseLM(8);
-                                            const yaw = (leftEar[0] - rightEar[0]) * 2.0; 
-                                            head.rotation.y = THREE.MathUtils.lerp(head.rotation.y, yaw, 0.1);
+                                            // --- RIGGING LOGIC ---
+                                            
+                                            // 1. Left Arm Chain (VRM: +X)
+                                            const leftArm = vrm.humanoid.getNormalizedBoneNode('leftUpperArm');
+                                            const leftForeArm = vrm.humanoid.getNormalizedBoneNode('leftLowerArm');
+                                            const leftHand = vrm.humanoid.getNormalizedBoneNode('leftHand');
+                                            
+                                            const lShoulder = getPoseLM(11);
+                                            const lElbow = getPoseLM(13);
+                                            const lWrist = getPoseLM(15);
+                                            
+                                            if (lShoulder[0] !== 0 && lElbow[0] !== 0 && lWrist[0] !== 0) {{
+                                                solveBoneRotation(leftArm, lShoulder, lElbow, new THREE.Vector3(1, 0, 0));
+                                                solveBoneRotation(leftForeArm, lElbow, lWrist, new THREE.Vector3(1, 0, 0));
+                                                
+                                                if (leftHand && frame.left_hand && frame.left_hand.length > 0) {{ 
+                                                    solveHandOrientation(leftHand, getLeftHandLM(0), getLeftHandLM(5), getLeftHandLM(9), getLeftHandLM(17), 'left');
+                                                }}
+                                            }} else {{
+                                                resetArmToRest(leftArm, leftForeArm, 'left');
+                                            }}
+
+                                            // 2. Right Arm Chain (VRM: -X)
+                                            const rightArm = vrm.humanoid.getNormalizedBoneNode('rightUpperArm');
+                                            const rightForeArm = vrm.humanoid.getNormalizedBoneNode('rightLowerArm');
+                                            const rightHand = vrm.humanoid.getNormalizedBoneNode('rightHand');
+                                            
+                                            const rShoulder = getPoseLM(12);
+                                            const rElbow = getPoseLM(14);
+                                            const rWrist = getPoseLM(16);
+
+                                            if (rShoulder[0] !== 0 && rElbow[0] !== 0 && rWrist[0] !== 0) {{
+                                                solveBoneRotation(rightArm, rShoulder, rElbow, new THREE.Vector3(-1, 0, 0));
+                                                solveBoneRotation(rightForeArm, rElbow, rWrist, new THREE.Vector3(-1, 0, 0));
+                                                
+                                                if (rightHand && frame.right_hand && frame.right_hand.length > 0) {{
+                                                     solveHandOrientation(rightHand, getRightHandLM(0), getRightHandLM(5), getRightHandLM(9), getRightHandLM(17), 'right');
+                                                }}
+                                            }} else {{
+                                                resetArmToRest(rightArm, rightForeArm, 'right');
+                                            }}
+                                            
+                                            // 3. Head Rotation
+                                            const head = vrm.humanoid.getNormalizedBoneNode('head');
+                                            if (head) {{
+                                                const leftEar = getPoseLM(7);
+                                                const rightEar = getPoseLM(8);
+                                                const yaw = (leftEar[0] - rightEar[0]) * 2.0; 
+                                                head.rotation.y = THREE.MathUtils.lerp(head.rotation.y, yaw, 0.1);
+                                            }}
                                         }}
                                     }}
                                     
@@ -550,54 +581,3 @@ def main():
                             renderer.render(scene, camera);
                         }}
                         animate();
-                    </script>
-                    </body></html>
-                    """
-                    st.components.v1.html(html_component, height=550)
-                    st.caption(f"🎬 DNA Stream Active | **{' '.join(words)}**")
-
-            col_orig, col_av, col_neo = st.columns(3)
-            with col_orig:
-                st.markdown("### 📽️ Source Benchmark")
-                if os.path.exists(st.session_state['benchmark_path']):
-                    st.video(st.session_state['benchmark_path'])
-                    st.caption("Standard library stitching.")
-                
-            with col_av:
-                st.markdown("### 🤖 Seamless Skeletal")
-                if os.path.exists(st.session_state['skeletal_path']):
-                    st.video(st.session_state['skeletal_path'])
-                    st.caption("Internal 'Takhyeet' engine.")
-                
-            with col_neo:
-                st.markdown("### 🦾 Neo-Avatar 3D")
-                if os.path.exists(st.session_state['neo_path']):
-                    st.video(st.session_state['neo_path'])
-                    st.caption("Premium Volumetric Representation.")
-                else:
-                    st.warning("⚠️ Avatar render requires skeletal DNA.")
-
-    # TAB 2: VIDEO TO TEXT
-    with tab2:
-        st.header("🎥 Sign Language Video to Text")
-        uploaded_file = st.file_uploader("Upload video (.mp4)", type=["mp4", "avi", "mov"])
-        
-        if uploaded_file:
-            temp_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4").name
-            with open(temp_path, "wb") as f:
-                f.write(uploaded_file.read())
-            st.video(temp_path)
-            
-            if st.button("🔍 Recognize Sign"):
-                with st.spinner("Analyzing landmarks..."):
-                    label, confidence = core.predict_sign(temp_path)
-                    if label:
-                        st.success(f"🏆 Detected: {label} ({confidence:.1f}%)")
-                    else:
-                        st.error("❌ Detection failed.")
-
-    st.markdown("---")
-    st.markdown("Designed by **Ahmed Eltaweel** | AI Architect @ Konecta 🚀")
-
-if __name__ == "__main__":
-    main()

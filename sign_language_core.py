@@ -51,7 +51,58 @@ class SignLanguageCore:
             
         features_sequence = []
         
-        with self.mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5) as holistic:
+        # Helper to calculate expression weights (0.0 to 1.0)
+        def _calculate_face_metrics(face_lms):
+            if not face_lms: return [0.0, 0.0, 0.0, 0.0]
+            
+            # Key Landmarks for Expressions
+            # Lips: 61(Left Corner), 291(Right Corner), 0(Top), 17(Bottom)
+            # Brows: 65(Left Inner), 295(Right Inner)
+            # Eyelids: 159(Left Top), 145(Left Bottom)
+            # Face Frame: 234(Left Ear), 454(Right Ear), 10(Top Head), 152(Chin)
+            
+            try:
+                lms = face_lms.landmark
+                def dist(i1, i2): 
+                    return np.sqrt((lms[i1].x - lms[i2].x)**2 + (lms[i1].y - lms[i2].y)**2)
+                
+                # Normalizers
+                face_width = dist(234, 454)
+                face_height = dist(10, 152) 
+                
+                if face_width < 0.01: return [0.0]*4
+
+                # 1. Happy (Smile) - Ratio of mouth width to face width
+                mouth_width = dist(61, 291)
+                smile_ratio = (mouth_width / face_width)
+                happy = max(0.0, min(1.0, (smile_ratio - 0.45) * 5.0)) # Threshold 0.45, Scale up
+
+                # 2. Surprised (Mouth Open)
+                mouth_open = dist(13, 14)
+                open_ratio = (mouth_open / face_height)
+                surprised = max(0.0, min(1.0, (open_ratio - 0.05) * 10.0)) # Threshold 0.05
+
+                # 3. Angry (Brow Furrow) - Inverse inster-brow distance
+                brow_dist = dist(55, 285) # Tighter inner brow
+                brow_ratio = (brow_dist / face_width)
+                # Normal ~0.25. Angry < 0.20
+                angry = max(0.0, min(1.0, (0.23 - brow_ratio) * 15.0))  
+                
+                # 4. Blink (Eye Openness) - Logic reversed (1=Closed, 0=Open for blendshape usually? Or 1=Blink)
+                # VRM Blink: 1.0 = Closed.
+                left_eye_open = dist(159, 145) / face_height
+                blink = 1.0 if left_eye_open < 0.015 else 0.0 # Simple threshold
+                
+                return [happy, surprised, angry, blink]
+            except:
+                return [0.0, 0.0, 0.0, 0.0]
+
+        # Use Holistic with refined face landmarks for expressions
+        with self.mp_holistic.Holistic(
+            min_detection_confidence=0.5, 
+            min_tracking_confidence=0.5,
+            refine_face_landmarks=True 
+        ) as holistic:
             count = 0
             while cap.isOpened() and count < max_frames:
                 ret, frame = cap.read()
@@ -71,9 +122,13 @@ class SignLanguageCore:
                     return [c for lm in pts for c in [lm.x - ref_x, lm.y - ref_y, lm.z]]
 
                 frame_features = []
-                frame_features.extend(get_coords(results.left_hand_landmarks, 21))
-                frame_features.extend(get_coords(results.right_hand_landmarks, 21))
-                frame_features.extend(get_coords(results.pose_landmarks, 33))
+                frame_features.extend(get_coords(results.left_hand_landmarks, 21))  # 63
+                frame_features.extend(get_coords(results.right_hand_landmarks, 21)) # 63
+                frame_features.extend(get_coords(results.pose_landmarks, 33))       # 99
+                
+                # NEW: Extract Expressions (4 floats)
+                expressions = _calculate_face_metrics(results.face_landmarks)
+                frame_features.extend(expressions)
                 
                 features_sequence.append(frame_features)
                 count += 1
@@ -212,6 +267,19 @@ class SignLanguageCore:
                 "right_hand": frame[63:126].tolist(), # 21 pts * 3
                 "pose": frame[126:225].tolist()       # 33 pts * 3
             }
+            
+            # Extract Expressions if available (Indices 225+)
+            if len(frame) > 225:
+                exprs = frame[225:]
+                frame_data["expressions"] = {
+                    "happy": float(exprs[0]),
+                    "surprised": float(exprs[1]),
+                    "angry": float(exprs[2]),
+                    "blink": float(exprs[3])
+                }
+            else:
+                frame_data["expressions"] = {"happy": 0.0, "surprised": 0.0, "angry": 0.0, "blink": 0.0}
+            
             json_sequence.append(frame_data)
         return json_sequence
 
