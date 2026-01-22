@@ -581,3 +581,54 @@ def main():
                             renderer.render(scene, camera);
                         }}
                         animate();
+                    </script>
+                    </body></html>
+                    """
+                    st.components.v1.html(html_component, height=550)
+                    st.caption(f"🎬 DNA Stream Active | **{' '.join(words)}**")
+
+            col_orig, col_av, col_neo = st.columns(3)
+            with col_orig:
+                st.markdown("### 📽️ Source Benchmark")
+                if os.path.exists(st.session_state['benchmark_path']):
+                    st.video(st.session_state['benchmark_path'])
+                    st.caption("Standard library stitching.")
+                
+            with col_av:
+                st.markdown("### 🤖 Seamless Skeletal")
+                if os.path.exists(st.session_state['skeletal_path']):
+                    st.video(st.session_state['skeletal_path'])
+                    st.caption("Internal 'Takhyeet' engine.")
+                
+            with col_neo:
+                st.markdown("### 🦾 Neo-Avatar 3D")
+                if os.path.exists(st.session_state['neo_path']):
+                    st.video(st.session_state['neo_path'])
+                    st.caption("Premium Volumetric Representation.")
+                else:
+                    st.warning("⚠️ Avatar render requires skeletal DNA.")
+
+    # TAB 2: VIDEO TO TEXT
+    with tab2:
+        st.header("🎥 Sign Language Video to Text")
+        uploaded_file = st.file_uploader("Upload video (.mp4)", type=["mp4", "avi", "mov"])
+        
+        if uploaded_file:
+            temp_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4").name
+            with open(temp_path, "wb") as f:
+                f.write(uploaded_file.read())
+            st.video(temp_path)
+            
+            if st.button("🔍 Recognize Sign"):
+                with st.spinner("Analyzing landmarks..."):
+                    label, confidence = core.predict_sign(temp_path)
+                    if label:
+                        st.success(f"🏆 Detected: {label} ({confidence:.1f}%)")
+                    else:
+                        st.error("❌ Detection failed.")
+
+    st.markdown("---")
+    st.markdown("Designed by **Ahmed Eltaweel** | AI Architect @ Konecta 🚀")
+
+if __name__ == "__main__":
+    main()
