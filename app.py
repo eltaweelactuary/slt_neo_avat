@@ -280,30 +280,63 @@ def main():
                         status_placeholder.warning(f"📖 Word **{w}** not in vocabulary.") # Changed to use placeholder
                 
                 if v_clips:
-                    full_dna = renderer.stitch_landmarks(dna_list)
-                    # Store in session state for persistence
-                    st.session_state['v_clips'] = v_clips
-                    st.session_state['full_dna'] = full_dna
-                    st.session_state['dna_list'] = dna_list
+                    # 1. Standard Benchmark (Stitched)
+                    f_orig = v_clips[0]
+                    for c in v_clips[1:]: f_orig = f_orig + c
+                    p_benchmark = os.path.join(tempfile.gettempdir(), f"bench_{int(time.time())}.mp4")
+                    f_orig.save(p_benchmark, overwrite=True)
+                    _optimize_video_for_web(p_benchmark)
                     
-        # Use session state to display results (persists across Cinema Mode toggle)
-        if 'v_clips' in st.session_state and st.session_state['v_clips']:
-            v_clips = st.session_state['v_clips']
-            full_dna = st.session_state.get('full_dna')
-            dna_list = st.session_state.get('dna_list', [])
-            words = st.session_state.get('last_words', [])
-            
+                    # 2. Skeletal & Neo-Avatar DNA
+                    full_dna = renderer.stitch_landmarks(dna_list)
+                    
+                    p_skeletal = os.path.join(tempfile.gettempdir(), f"skel_{int(time.time())}.mp4")
+                    renderer.render_landmark_dna(full_dna, p_skeletal)
+                    _optimize_video_for_web(p_skeletal)
+                    
+                    p_neo = os.path.join(tempfile.gettempdir(), f"neo_{int(time.time())}.mp4")
+                    renderer.render_neo_avatar(full_dna, p_neo)
+                    _optimize_video_for_web(p_neo)
+                    
+                    # Store everything in session state (Strings/Numeric only)
+                    st.session_state['benchmark_path'] = p_benchmark
+                    st.session_state['skeletal_path'] = p_skeletal
+                    st.session_state['neo_path'] = p_neo
+                    st.session_state['full_dna'] = full_dna
+                    st.session_state['last_words'] = words
+                    
+                    # Explicit memory cleanup
+                    del v_clips
+                    del full_dna
+                    import gc
+                    gc.collect()
+
+        # PERSISTENT DISPLAY SECTION (Works even after toggle)
+        if 'benchmark_path' in st.session_state:
             st.divider()
-            cinema_mode = st.toggle("🎭 Activate Cinema Mode (3D ReadyPlayerMe Bridge)", value=False)
+            cinema_mode = st.toggle("🎭 Activate Cinema Mode (3D VRM Client)", value=False)
+            
+            words = st.session_state.get('last_words', [])
+            full_dna = st.session_state.get('full_dna')
             
             if cinema_mode:
                 st.markdown("### 🎬 Cinema Mode: High-Fidelity 3D Avatar")
                 dna_json = core.get_words_dna_json(words)
                 if dna_json:
                     import json
-                    st.info("🤖 **ReadyPlayerMe Bridge Active** | Transmitting Skeletal DNA...")
+                    import base64
                     
-                    # INLINE Three.js Component (No iframe - direct embed for Streamlit Cloud)
+                    # Embed local VRM model for stability
+                    vrm_path = "VRM1_Constraint_Twist_Sample.vrm" # Ensure this file is in the root
+                    vrm_base64 = ""
+                    if os.path.exists(vrm_path):
+                        with open(vrm_path, "rb") as f:
+                            vrm_base64 = base64.b64encode(f.read()).decode()
+                    else:
+                        st.error("❌ VRM Model file not found. Please upload 'VRM1_Constraint_Twist_Sample.vrm' to the app directory.")
+                    
+                    st.info("🤖 **Local VRM Bridge Active** | Transmitting Skeletal DNA...")
+                    
                     html_component = f"""
                     <!DOCTYPE html>
                     <html><head>
@@ -356,15 +389,23 @@ def main():
 
                         const loader = new GLTFLoader();
                         loader.register(p => new VRMLoaderPlugin(p));
-                        loader.load('https://pixiv.github.io/three-vrm/examples/models/vrm/three-vrm-girl.vrm', gltf => {{
-                            vrm = gltf.userData.vrm;
-                            VRMUtils.rotateVRM0(vrm);
-                            scene.add(vrm.scene);
-                            document.getElementById('status').textContent = 'Playing';
-                        }}, null, e => {{ 
-                            document.getElementById('status').textContent = 'Load Error: ' + (e.message || 'Check Console');
-                            console.error(e); 
-                        }});
+                        
+                        // Using Local Base64 Model for Ultimate Stability
+                        const vrmData = "data:application/octet-stream;base64," + "{vrm_base64}";
+                        
+                        if ("{vrm_base64}") {{
+                            loader.load(vrmData, gltf => {{
+                                vrm = gltf.userData.vrm;
+                                VRMUtils.rotateVRM0(vrm);
+                                scene.add(vrm.scene);
+                                document.getElementById('status').textContent = 'Playing (Local)';
+                            }}, null, e => {{ 
+                                document.getElementById('status').textContent = 'Load Error: Corrupted Data';
+                                console.error(e);
+                            }});
+                        }} else {{
+                             document.getElementById('status').textContent = 'Load Error: No Model Data';
+                        }}
 
                         const clock = new THREE.Clock();
                         function animate() {{
@@ -390,34 +431,25 @@ def main():
                     </body></html>
                     """
                     st.components.v1.html(html_component, height=550)
-                    st.caption(f"🎬 Playing {len(dna_json)} frames | **{' '.join(words)}**")
+                    st.caption(f"🎬 DNA Stream Active | **{' '.join(words)}**")
 
             col_orig, col_av, col_neo = st.columns(3)
             with col_orig:
                 st.markdown("### 📽️ Source Benchmark")
-                f_orig = v_clips[0]
-                for c in v_clips[1:]: f_orig = f_orig + c
-                p_orig = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4").name
-                f_orig.save(p_orig, overwrite=True)
-                st.video(p_orig)
-                st.caption("Standard library stitching.")
+                if os.path.exists(st.session_state['benchmark_path']):
+                    st.video(st.session_state['benchmark_path'])
+                    st.caption("Standard library stitching.")
                 
             with col_av:
                 st.markdown("### 🤖 Seamless Skeletal")
-                if full_dna is not None:
-                    out_p = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4").name
-                    renderer.render_landmark_dna(full_dna, out_p)
-                    st.video(out_p)
+                if os.path.exists(st.session_state['skeletal_path']):
+                    st.video(st.session_state['skeletal_path'])
                     st.caption("Internal 'Takhyeet' engine.")
-                else:
-                    st.warning("⚠️ High-fidelity DNA not available for this combination.")
                 
             with col_neo:
                 st.markdown("### 🦾 Neo-Avatar 3D")
-                if full_dna is not None:
-                    neo_p = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4").name
-                    renderer.render_neo_avatar(full_dna, neo_p)
-                    st.video(neo_p)
+                if os.path.exists(st.session_state['neo_path']):
+                    st.video(st.session_state['neo_path'])
                     st.caption("Premium Volumetric Representation.")
                 else:
                     st.warning("⚠️ Avatar render requires skeletal DNA.")
