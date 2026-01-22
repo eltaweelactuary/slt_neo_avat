@@ -428,38 +428,56 @@ def main():
                             node.quaternion.slerp(q, 0.5); 
                         }}
                         
-                        // --- ADVANCED HAND ORIENTATION SOLVER (Matrix Basis) ---
+                        // --- ADVANCED HAND ORIENTATION SOLVER (Swing-Twist Decomposition) ---
                         function solveHandOrientation(node, p_wrist, p_index, p_middle, p_pinky, side) {{
                            if (!node || !p_wrist || !p_index || !p_middle || !p_pinky) return;
                            
-                           // Inputs are arrays [x, y, z] from getLeftHandLM/getRightHandLM
+                           // Inputs: Arrays [x, y, z]
                            // VRM/Three.js Logic: Flip Y and Z from MediaPipe World Space
+                           const toVec3 = (a) => new THREE.Vector3(a[0], -a[1], -a[2]);
                            
-                           const vWrist = new THREE.Vector3(p_wrist[0], -p_wrist[1], -p_wrist[2]);
-                           const vIndex = new THREE.Vector3(p_index[0], -p_index[1], -p_index[2]);
-                           const vMiddle = new THREE.Vector3(p_middle[0], -p_middle[1], -p_middle[2]);
-                           const vPinky = new THREE.Vector3(p_pinky[0], -p_pinky[1], -p_pinky[2]);
+                           const vWrist = toVec3(p_wrist);
+                           const vIndex = toVec3(p_index);
+                           const vMiddle = toVec3(p_middle);
+                           const vPinky = toVec3(p_pinky);
 
                            // 1. Calculate Basis Vectors
-                           const vDir = new THREE.Vector3().subVectors(vMiddle, vWrist).normalize(); // MAIN Direction (Wrist -> Middle)
-                           const vWidth = new THREE.Vector3().subVectors(vPinky, vIndex).normalize(); // CROSS Direction (Index -> Pinky)
+                           // Main Axis (Dir): Wrist -> Middle. (The Bone Axis)
+                           const vDir = new THREE.Vector3().subVectors(vMiddle, vWrist).normalize(); 
+                           // Secondary Axis (Width): Index -> Pinky. (roughly perpendicular to Dir, defines the plane)
+                           const vWidth = new THREE.Vector3().subVectors(vPinky, vIndex).normalize();
 
-                           // 2. Construct Rotation Matrix
-                           // VRM T-Pose Standard: 
-                           // Left Arm points +X. Right Arm points -X.
+                           // 2. SWING: Align Bone Main Axis to Target Direction
+                           // VRM T-Pose Standard: Left Arm points +X. Right Arm points -X.
                            const defaultDir = new THREE.Vector3(side === 'left' ? 1 : -1, 0, 0);
-                           const qDir = new THREE.Quaternion().setFromUnitVectors(defaultDir, vDir);
+                           const qSwing = new THREE.Quaternion().setFromUnitVectors(defaultDir, vDir);
                            
-                           // Twist Correction (Palm Orientation)
-                           // Calculate expected Up vector for the bone in T-Pose (Palm Down = -Y?)
-                           // Current Palm Normal from MediaPipe: Cross(Dir, Width)
-                           const vPalm = new THREE.Vector3().crossVectors(vDir, vWidth).normalize();
-                           if (side === 'right') vPalm.negate(); // Flip for symmetry if needed
+                           // 3. TWIST: Align Palm Normal (Rotation around Main Axis)
+                           // VRM Standard T-Pose: Palm faces -Z (Forward). Thumb points +Y.
+                           // So Default Up (Palm Normal) is roughly -Z (for Left) or +Z (for Right maybe).
+                           // Let's assume Palm Faces -Z for both (Standard Forward).
+                           
+                           // Calculate Target Palm Normal from Landmarks: Cross(Dir, Width)
+                           // Note: Depending on hand side, this cross might point Up or Down relative to Palm.
+                           // Left Hand: Dir(+X), Width(-Y). Cross(X, -Y) = -Z. (Correct)
+                           // Right Hand: Dir(-X), Width(-Y). Cross(-X, -Y) = +Z. (Backwards to -Z).
+                           // We will adjust based on side.
+                           
+                           const targetPalm = new THREE.Vector3().crossVectors(vDir, vWidth).normalize();
+                           if (side === 'right') targetPalm.negate(); // Flip Right Hand to match standard -Z forward face
+                           
+                           // Calculate "Current" Palm Normal after Swing
+                           // (Start with Default Palm -Z and rotate it by qSwing)
+                           const defaultPalm = new THREE.Vector3(0, 0, -1);
+                           const currentPalm = defaultPalm.clone().applyQuaternion(qSwing);
 
-                           // Apply
-                           node.quaternion.slerp(qDir, 0.6);
-                           // NOTE: Full twist requires `setFromRotationMatrix` with calculated up.
-                           // For now, simpler LookAt-style slerp is safer to un-break the "behind head" issue.
+                           // 4. Calculate Twist Quaternion
+                           const qTwist = new THREE.Quaternion().setFromUnitVectors(currentPalm, targetPalm);
+                           
+                           // 5. Combine: Twist * Swing
+                           const qFinal = qTwist.multiply(qSwing);
+                           
+                           node.quaternion.slerp(qFinal, 0.6);
                         }}
 
                         function animate() {{
