@@ -411,7 +411,7 @@ def main():
                         const clock = new THREE.Clock();
                         
                         // --- ADVANCED FK SOLVER (Vector-to-Quaternion) ---
-                        function solveBoneRotation(node, p_start, p_end, baseDir) {
+                        function solveBoneRotation(node, p_start, p_end, baseDir) {{
                             if (!node || !p_start || !p_end) return;
                             
                             // 1. Calculate Target Vector from MediaPipe (Flip Y & Z for VRM coordinate space)
@@ -426,7 +426,7 @@ def main():
                             
                             // 3. Apply Smoothly
                             node.quaternion.slerp(q, 0.5); 
-                        }
+                        }}
 
                         function animate() {
                             requestAnimationFrame(animate);
@@ -551,16 +551,7 @@ def main():
                             renderer.render(scene, camera);
                         }}
                         animate();
-                                    }
-                                    
-                                    // Loop DNA
-                                    document.getElementById('frame').textContent = (frameIdx+1) + '/' + DNA.length;
-                                    frameIdx = (frameIdx + 1) % DNA.length;
-                                }
-                            }
-                            renderer.render(scene, camera);
-                        }
-                        animate();
+
                     </script>
                     </body></html>
                     """
