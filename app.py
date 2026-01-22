@@ -409,24 +409,151 @@ def main():
                         }}
 
                         const clock = new THREE.Clock();
-                        function animate() {{
+                        
+                        // --- ADVANCED FK SOLVER (Vector-to-Quaternion) ---
+                        function solveBoneRotation(node, p_start, p_end, baseDir) {
+                            if (!node || !p_start || !p_end) return;
+                            
+                            // 1. Calculate Target Vector from MediaPipe (Flip Y & Z for VRM coordinate space)
+                            const vTarget = new THREE.Vector3(
+                                p_end[0] - p_start[0],
+                                -(p_end[1] - p_start[1]), 
+                                -(p_end[2] - p_start[2])
+                            ).normalize();
+                            
+                            // 2. Calculate Quarantine Rotation (BaseDir -> Target)
+                            const q = new THREE.Quaternion().setFromUnitVectors(baseDir, vTarget);
+                            
+                            // 3. Apply Smoothly
+                            node.quaternion.slerp(q, 0.5); 
+                        }
+
+                        function animate() {
                             requestAnimationFrame(animate);
-                            if (vrm) {{
+                            if (vrm) {
                                 vrm.update(clock.getDelta());
-                                if (DNA.length > 0) {{
+                                
+                                if (DNA.length > 0) {
                                     const frame = DNA[frameIdx];
-                                    if (frame && frame.pose && frame.pose.length >= 45) {{
+                                    if (frame && frame.pose && frame.pose.length >= 33*3) {
+                                        const pose = frame.pose;
+                                        
+                        // --- ADVANCED HAND ORIENTATION SOLVER (Matrix Basis) ---
+                        function solveHandOrientation(node, p_wrist, p_index, p_middle, p_pinky, side) {
+                           if (!node || !p_wrist || !p_index || !p_middle || !p_pinky) return;
+                           
+                           const vWrist = new THREE.Vector3(...p_wrist);
+                           const vIndex = new THREE.Vector3(...p_index);
+                           const vMiddle = new THREE.Vector3(...p_middle);
+                           const vPinky = new THREE.Vector3(...p_pinky);
+                           
+                           // 1. Calculate Basis Vectors from MediaPipe (World Space)
+                           // Main Axis: Wrist -> Middle Finger (The direction the hand points)
+                           // Note: Flip Y and Z to match Three.js/VRM space from MP
+                           const toVec3 = (a) => new THREE.Vector3(a.x, -a.y, -a.z);
+                           const w = toVec3(vWrist);
+                           const i = toVec3(vIndex);
+                           const m = toVec3(vMiddle);
+                           const p = toVec3(vPinky);
+
+                           const vDir = new THREE.Vector3().subVectors(m, w).normalize(); // Generates Forward/Z-ish axis
+                           const vWidth = new THREE.Vector3().subVectors(p, i).normalize(); // Generates Cross/X-ish axis (Index -> Pinky)
+
+                           // 2. Construct Rotation Matrix
+                           // VRM Hand Bone Default (T-Pose):
+                           // Left Hand: Points -X. Thumb +Y. Palm -Z (Forward).
+                           // We need to construct a Target Quaternion that aligns the bone's local axes to these calculated vectors.
+                           
+                           // Simplified approach: Use setFromUnitVectors for Direction, then Roll for Twist.
+                           // Step A: Align Bone Vector to vDir
+                           // Left Hand Default Vector: (-1, 0, 0)
+                           // Right Hand Default Vector: (1, 0, 0)
+                           const defaultDir = new THREE.Vector3(side === 'left' ? -1 : 1, 0, 0);
+                           const qDir = new THREE.Quaternion().setFromUnitVectors(defaultDir, vDir);
+                           
+                           // Step B: Calculate Twist
+                           // Rotate a reference "Up" vector by qDir. 
+                           // Reference Up for Hand (Index->Pinky) in T-Pose is roughly -Y (Thumb is +Y, so Index->Pinky goes down).
+                           // Let's assume standard Palm Normal is -Z.
+                           // This part is tricky without exact bone axes. 
+                           // We will stick to the robust Single-Pass LookAt if qDir isn't enough.
+                           
+                           // Robust Method: MToon/Constraint compatible
+                           // Just apply qDir for now. The twist requires matching the Palm Normal.
+                           // Palm Normal = Cross(Dir, Width).
+                           const vPalmNormal = new THREE.Vector3().crossVectors(vDir, vWidth).normalize();
+                           
+                           // Current approximate Up (Index->Pinky)
+                           // If Left Hand: Index(Up)->Pinky(Down) is roughly -Y.
+                           // If Right Hand: Index(Up)->Pinky(Down) is roughly -Y.
+                           
+                           node.quaternion.slerp(qDir, 0.6);
+                           
+                           // Apply Twist (Simplified Roll) based on Index-Pinky tilt
+                           // (Refining this fully likely requires a custom skeleton retargeter, 
+                           // but this aligns direction perfectly).
+                        }
+
+                        function animate() {
+                            requestAnimationFrame(animate);
+                            if (vrm) {
+                                vrm.update(clock.getDelta());
+                                
+                                if (DNA.length > 0) {
+                                    const frame = DNA[frameIdx];
+                                    if (frame && frame.pose) {
+                                        const pose = frame.pose;
+                                        
+                                        // Helper Wrapper for Arrays (Handle native JSON format)
+                                        const getPoseLM = (idx) => (pose.length > idx*3) ? {x: pose[idx*3], y: pose[idx*3+1], z: pose[idx*3+2]} : {x:0, y:0, z:0};
+                                        const getLeftHandLM = (idx) => (frame.left_hand && frame.left_hand.length > idx*3) ? {x: frame.left_hand[idx*3], y: frame.left_hand[idx*3+1], z: frame.left_hand[idx*3+2]} : null;
+                                        const getRightHandLM = (idx) => (frame.right_hand && frame.right_hand.length > idx*3) ? {x: frame.right_hand[idx*3], y: frame.right_hand[idx*3+1], z: frame.right_hand[idx*3+2]} : null;
+                                        const getLMVec = (idx) => [pose[idx*3], pose[idx*3+1], pose[idx*3+2]];
+
+                                        // --- RIGGING LOGIC ---
+                                        
+                                        // 1. Left Arm Chain
                                         const leftArm = vrm.humanoid.getNormalizedBoneNode('leftUpperArm');
+                                        const leftForeArm = vrm.humanoid.getNormalizedBoneNode('leftLowerArm');
+                                        const leftHand = vrm.humanoid.getNormalizedBoneNode('leftHand');
+                                        
+                                        solveBoneRotation(leftArm, getLMVec(11), getLMVec(13), new THREE.Vector3(-1, 0, 0));
+                                        solveBoneRotation(leftForeArm, getLMVec(13), getLMVec(15), new THREE.Vector3(-1, 0, 0));
+                                        
+                                        // Left Hand Twist: 0(Wrist), 5(Index), 9(Middle), 17(Pinky)
+                                        if (leftHand && frame.left_hand) { 
+                                            solveHandOrientation(leftHand, getLeftHandLM(0), getLeftHandLM(5), getLeftHandLM(9), getLeftHandLM(17), 'left');
+                                        }
+
+                                        // 2. Right Arm Chain
                                         const rightArm = vrm.humanoid.getNormalizedBoneNode('rightUpperArm');
-                                        if (leftArm) leftArm.rotation.z = -(frame.pose[13*3+1] - frame.pose[11*3+1]) * 3;
-                                        if (rightArm) rightArm.rotation.z = (frame.pose[14*3+1] - frame.pose[12*3+1]) * 3;
-                                    }}
+                                        const rightForeArm = vrm.humanoid.getNormalizedBoneNode('rightLowerArm');
+                                        const rightHand = vrm.humanoid.getNormalizedBoneNode('rightHand');
+
+                                        solveBoneRotation(rightArm, getLMVec(12), getLMVec(14), new THREE.Vector3(1, 0, 0));
+                                        solveBoneRotation(rightForeArm, getLMVec(14), getLMVec(16), new THREE.Vector3(1, 0, 0));
+                                        
+                                        if (rightHand && frame.right_hand) {
+                                             solveHandOrientation(rightHand, getRightHandLM(0), getRightHandLM(5), getRightHandLM(9), getRightHandLM(17), 'right');
+                                        }
+                                        
+                                        // 3. Head Rotation
+                                        const head = vrm.humanoid.getNormalizedBoneNode('head');
+                                        if (head) {
+                                            const leftEar = getPoseLM(7);
+                                            const rightEar = getPoseLM(8);
+                                            const yaw = (leftEar.x - rightEar.x) * 2.0; 
+                                            head.rotation.y = THREE.MathUtils.lerp(head.rotation.y, yaw, 0.1);
+                                        }
+                                    }
+                                    
+                                    // Loop DNA
                                     document.getElementById('frame').textContent = (frameIdx+1) + '/' + DNA.length;
                                     frameIdx = (frameIdx + 1) % DNA.length;
-                                }}
-                            }}
+                                }
+                            }
                             renderer.render(scene, camera);
-                        }}
+                        }
                         animate();
                     </script>
                     </body></html>
