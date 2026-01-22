@@ -361,7 +361,10 @@ def main():
                             VRMUtils.rotateVRM0(vrm);
                             scene.add(vrm.scene);
                             document.getElementById('status').textContent = 'Playing';
-                        }}, null, e => {{ document.getElementById('status').textContent = 'Error'; console.error(e); }});
+                        }}, null, e => {{ 
+                            document.getElementById('status').textContent = 'Load Error: ' + (e.message || 'Check Console');
+                            console.error(e); 
+                        }});
 
                         const clock = new THREE.Clock();
                         function animate() {{
