@@ -210,13 +210,25 @@ st.markdown("""
     h1, h2, h3 { color: #38bdf8 !important; }
     div[data-testid="stExpander"] { background-color: rgba(56, 189, 248, 0.05); border: 1px solid #38bdf8; border-radius: 10px; }
     .stTextInput>div>div>input { background-color: #1e293b; color: white; border: 1px solid #38bdf8; }
+    /* COMPUTER MODE FOR MOBILE (Desktop Feel) */
+    @media (max-width: 1024px) {
+        .main .block-container { min-width: 1000px !important; overflow-x: auto !important; padding-top: 2rem !important; }
+        .stApp { min-width: 1000px !important; }
+        header[data-testid="stHeader"] { min-width: 1000px !important; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # Vocabulary Mapping (Optimized for Internal Library Sync)
+# Vocabulary Mapping (Optimized for Internal Library Sync)
 PSL_VOCABULARY = {
+    # Base Tokens (Urdu)
     "apple": "سیب", "world": "دنيا", "good": "اچھا", "hello": "ہیلو",
-    "salam": "سلام", "water": "پانی", "food": "کھانا", "school": "اسكول"
+    "salam": "سلام", "water": "پانی", "food": "کھانا", "school": "اسكول",
+    # Direct Phonetic Mapping (Arabic/Urdu variants)
+    "هللو": "ہیلو", "هالو": "ہیلو", "هالو": "ہیلو", "هلو": "ہیلو", "هاللو": "ہیلو",
+    "ورلد": "دنيا", "وورلد": "دنيا", "وورد": "دنيا",
+    "ابل": "سیب", "جود": "اچھا", "ووتر": "پانی", "فود": "کھانا", "سكول": "اسكول"
 }
 
 # App Data Paths
@@ -295,6 +307,8 @@ def main():
         st.stop()
     
     # --- CLEAN UI ---
+    st.sidebar.success("💎 **Rigging Standard:** Elite Studio v2.0")
+    st.sidebar.info("🖥️ **Mode:** Forced Desktop (Computer View)")
     
     def preprocess_text(text, vocab):
         """Refined Lemmatizer: Specifically tuned for PSL/Urdu structures."""
@@ -326,7 +340,6 @@ def main():
                 refined.append(lemma)
             else:
                 # 3. Last fallback: Check if "s" was part of name or unknown
-                refined.append(w) 
         return refined
 
     tab1, tab2 = st.tabs(["📝 Text → Video", "🎥 Video → Text"])
@@ -337,10 +350,14 @@ def main():
         if 'text_input_val' not in st.session_state:
             st.session_state['text_input_val'] = ""
 
-        text_input = st.text_input("Enter text:", value=st.session_state['text_input_val'], placeholder="e.g., apple hello world", key="main_input")
+        text_input = st.text_input("Enter text (English or Arabic Phonetic):", value=st.session_state['text_input_val'], placeholder="e.g., apple hello world / هللو ورلد", key="main_input")
         
-        # Word Display below input
-        st.markdown(f"📖 **Supported Words:** `{', '.join(PSL_VOCABULARY.keys())}`")
+        # Word Display Grid
+        st.markdown("**📖 Supported Vocabulary:**")
+        cols = st.columns(4)
+        base_keys = ["apple", "world", "good", "hello", "salam", "water", "food", "school"]
+        for i, k in enumerate(base_keys):
+            cols[i%4].code(k)
         
         col1, col2 = st.columns([1, 1])
         with col1:
@@ -372,18 +389,26 @@ def main():
                         try:
                             status_placeholder.info(f"🔍 Processing: **{w}**")
                             
-                            # STABILITY PATCH: Try Urdu token first, fallback to English token
-                            # This ensures words like 'good' (اچھا) find their videos properly.
-                            urdu_token = PSL_VOCABULARY[w]
-                            clip = translator.translate(urdu_token)
+                            # CRITICAL FIX: The phonetic tokens now map directly to Urdu values.
+                            # The engine can infer signs for "ہیلو", "دنيا", etc.
+                            token = PSL_VOCABULARY[w]
+                            clip = translator.translate(token)
                             
                             if clip is None or len(clip) == 0:
-                                # Fallback to English
+                                # Try original key as fallback (e.g. if it was already English)
                                 clip = translator.translate(w)
 
                             if clip is not None and len(clip) > 0:
                                 v_clips.append(clip)
-                                dna = core.get_word_dna(w)
+                                # For DNA retrieval, we need the base english key if it was an alias
+                                # Find the key in PSL_VOCABULARY that has this urdu token
+                                base_key = w
+                                for k, v in PSL_VOCABULARY.items():
+                                    if v == token and k in ["apple", "world", "good", "hello", "salam", "water", "food", "school"]:
+                                        base_key = k
+                                        break
+                                
+                                dna = core.get_word_dna(base_key)
                                 if dna is not None:
                                     dna_list.append(dna)
                                     status_placeholder.success(f"✅ DNA for **{w}** ready.")
@@ -534,8 +559,12 @@ def main():
                                 vrm.scene.traverse(obj => {
                                     if (obj.isMesh) {
                                         obj.material.colorSpace = THREE.SRGBColorSpace;
+                                        // Studio grade brightness for all avatars
+                                        if (obj.material.emissive) obj.material.emissiveIntensity = 0.2;
                                     }
                                 });
+                                // Force standard "Elite" calibration (Forward facing)
+                                vrm.scene.rotation.y = Math.PI;
                                 scene.add(vrm.scene);
                                 document.getElementById('status').textContent = 'Konecta Rep Online';
                             }, null, e => { 
@@ -578,8 +607,8 @@ def main():
                                matrix.makeBasis(vForwardR, vNormal, vSide);
                            }
                            const qFinal = new THREE.Quaternion().setFromRotationMatrix(matrix);
-                           // STABILITY STRENGTH: Slightly higher for hands (0.08) than limbs, but still smooth
-                           node.quaternion.slerp(qFinal, 0.08); 
+                           // ELITE STANDARD: Ultra-smooth 0.05 slerp for professional movement
+                           node.quaternion.slerp(qFinal, 0.05); 
                         }
                         
                         function resetArmToRest(arm, forearm, side) {
@@ -741,24 +770,34 @@ def main():
             st.subheader("🔴 Live Video Analysis")
             st.markdown("""**Instructions:** Drop a clear video clip here to recognize the sign.""")
             
-            uploaded_file = st.file_uploader("Upload or Record Sign Clip", type=["mp4", "avi", "mov"], key="vid_uploader")
+            if 'last_results' not in st.session_state:
+                st.session_state['last_results'] = {}
+
+            uploaded_file = st.file_uploader("Upload Sign Clip", type=["mp4", "avi", "mov"], key="vid_uploader")
             
             if uploaded_file:
+                file_id = f"{uploaded_file.name}_{uploaded_file.size}"
+                
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
                     tmp_vid.write(uploaded_file.read())
                     temp_path = tmp_vid.name
                 
                 st.video(temp_path)
                 
-                if st.button("🔍 Recognize Sign"):
+                if st.button("🔍 Recognize Sign", key="btn_recognize"):
                     with st.spinner("🧠 Analyzing Sign Motion..."):
                         label, confidence = core.predict_sign(temp_path)
                         if label:
-                            st.success(f"🏆 Result: **{label}** ({confidence:.1f}%)")
+                            result_text = f"🏆 Result: **{label}** ({confidence:.1f}%)"
+                            st.session_state['last_results'][file_id] = result_text
                             if label not in st.session_state['shared_sentence']:
                                 st.session_state['shared_sentence'].append(label)
                         else:
                             st.error("❌ Recognition failed. Please try a clearer video.")
+                
+                # Persist result display even after button click
+                if file_id in st.session_state['last_results']:
+                    st.success(st.session_state['last_results'][file_id])
 
     st.markdown("---")
     st.markdown("Designed by **Ahmed Eltaweel** | AI Architect @ Konecta 🚀")
