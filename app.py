@@ -214,19 +214,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Vocabulary Mapping (Optimized for Internal Library Sync)
-# Note: Internal mapping uses words directly to avoid Urdu inference errors.
 PSL_VOCABULARY = {
-    "apple": "سیب", "world": "دنیا", "pakistan": "پاکستان",
-    "good": "اچھا", "red": "لال", "is": "ہے", "the": "یہ", "that": "وہ",
-    "hello": "ہیلو", "salam": "سلام", "welcome": "خوش آمدید",
-    "thank you": "شکریہ", "yes": "ہاں", "no": "نہیں", "please": "براہ کرم",
-    "I": "میں", "you": "تم", "we": "ہم", "he": "وہ", "she": "وہ",
-    "name": "نام", "my": "میرا", "your": "تمہارا",
-    "eat": "کھانا", "drink": "پینا", "go": "جانا", "come": "آنا",
-    "help": "مدد", "water": "پانی", "food": "کھانا",
-    "house": "گھر", "school": "اسکول", "book": "کتاب",
-    "happy": "خوش", "sad": "اداس", "angry": "غصہ",
-    "what": "کیا", "where": "کہاں", "how": "کیسے"
+    "apple": "سیب", "world": "دنيا", "good": "اچھا", "hello": "ہیلو",
+    "salam": "سلام", "water": "پانی", "food": "کھانا", "school": "اسكول"
 }
 
 # App Data Paths
@@ -304,14 +294,7 @@ def main():
         st.error("❌ Failed to initialize SLT Core.")
         st.stop()
     
-    # --- REFINED LINGUISTICS & UI ---
-    SUGGESTED_SENTENCES = [
-        "salam my name ahmed",
-        "i drink water",
-        "he eat food",
-        "school where",
-        "how you"
-    ]
+    # --- CLEAN UI ---
     
     def preprocess_text(text, vocab):
         """Refined Lemmatizer: Specifically tuned for PSL/Urdu structures."""
@@ -353,21 +336,11 @@ def main():
         st.header("📝 Text to Sign Language Video")
         st.info(f"**Available words:** {', '.join(PSL_VOCABULARY.keys())}")
         
-        # Suggestions HUD
-        st.markdown("💡 **Suggestions:**")
-        
-        def set_suggestion(s):
-            st.session_state['text_input_val'] = s
-
-        cols = st.columns(len(SUGGESTED_SENTENCES))
-        for i, sent in enumerate(SUGGESTED_SENTENCES):
-            cols[i].button(sent, key=f"sug_{i}", on_click=set_suggestion, args=(sent,))
-
         # Text input (with session state sync)
         if 'text_input_val' not in st.session_state:
             st.session_state['text_input_val'] = ""
 
-        text_input = st.text_input("Enter text:", value=st.session_state['text_input_val'], placeholder="e.g., apple good world", key="main_input")
+        text_input = st.text_input("Enter text:", value=st.session_state['text_input_val'], placeholder="e.g., apple hello world", key="main_input")
         
         col1, col2 = st.columns([1, 1])
         with col1:
@@ -759,42 +732,27 @@ def main():
                 st.error(f"❌ WebRTC Error: {e}")
 
         else:
-            st.subheader("🔴 Live Video Recording & Analysis")
-            st.markdown("""**Instructions:** Capture a clear stabilized video (2-5 seconds). Ensure your hands are clearly visible in the frame for accurate landmark detection.""")
+            st.subheader("🔴 Live Video Analysis")
+            st.markdown("""**Instructions:** Drop a clear video clip here to recognize the sign.""")
             
             uploaded_file = st.file_uploader("Upload or Record Sign Clip", type=["mp4", "avi", "mov"], key="vid_uploader")
             
             if uploaded_file:
-                # Use a specific key for processing to avoid rerun loops
-                file_id = f"{uploaded_file.name}_{uploaded_file.size}"
-                
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
                     tmp_vid.write(uploaded_file.read())
                     temp_path = tmp_vid.name
                 
                 st.video(temp_path)
                 
-                # Check if this exact file was just processed
-                if st.session_state.get('last_proc_vid') == file_id:
-                   label = st.session_state.get('last_proc_label')
-                   if label:
-                       st.success(f"🏆 Last Recognition: **{label}**")
-                   st.info("💡 To analyze a new clip, please upload a different file.")
-                else:
-                    if st.button("🔍 Recognize & Add Sign"):
-                        with st.spinner("🧠 Analyzing Sign Motion..."):
-                            label, confidence = core.predict_sign(temp_path)
-                            if label:
-                                st.success(f"🏆 Recognized: **{label}** ({confidence:.1f}%)")
-                                # Avoid duplicate appends if user clicks multiple times
-                                if label not in st.session_state['shared_sentence'][-1:] or not st.session_state['shared_sentence']:
-                                    st.session_state['shared_sentence'].append(label)
-                                
-                                st.session_state['last_proc_vid'] = file_id
-                                st.session_state['last_proc_label'] = label
-                                st.rerun()
-                            else:
-                                st.error("❌ Recognition failed. Please try a clearer video with better lighting.")
+                if st.button("🔍 Recognize Sign"):
+                    with st.spinner("🧠 Analyzing Sign Motion..."):
+                        label, confidence = core.predict_sign(temp_path)
+                        if label:
+                            st.success(f"🏆 Result: **{label}** ({confidence:.1f}%)")
+                            if label not in st.session_state['shared_sentence']:
+                                st.session_state['shared_sentence'].append(label)
+                        else:
+                            st.error("❌ Recognition failed. Please try a clearer video.")
 
     st.markdown("---")
     st.markdown("Designed by **Ahmed Eltaweel** | AI Architect @ Konecta 🚀")

@@ -35,19 +35,10 @@ class SignLanguageCore:
         self.classifier = None
         self.label_encoder = None
         
-        # Vocabulary (Expanded for natural sentence construction)
+        # Core Vocabulary (Stable 8)
         self.vocabulary = {
-            "apple": "سیب", "world": "دنیا", "pakistan": "پاکستان",
-            "good": "اچھا", "red": "لال", "is": "ہے", "the": "یہ", "that": "وہ",
-            "hello": "ہیلو", "salam": "سلام", "welcome": "خوش آمدید",
-            "thank you": "شکریہ", "yes": "ہاں", "no": "نہیں", "please": "براہ کرم",
-            "I": "میں", "you": "تم", "we": "ہم", "he": "وہ", "she": "وہ",
-            "name": "نام", "my": "میرا", "your": "تمہارا",
-            "eat": "کھانا", "drink": "پینا", "go": "جانا", "come": "آنا",
-            "help": "مدد", "water": "پانی", "food": "کھانا",
-            "house": "گھر", "school": "اسکول", "book": "کتاب",
-            "happy": "خوش", "sad": "اداس", "angry": "غصہ",
-            "what": "کیا", "where": "کہاں", "how": "کیسے"
+            "apple": "سیب", "world": "دنيا", "good": "اچھا", "hello": "ہیلو",
+            "salam": "سلام", "water": "پانی", "food": "کھانا", "school": "اسكول"
         }
 
     def extract_landmarks_from_video(self, video_path, max_frames=60, return_sequence=True):
