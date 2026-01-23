@@ -438,45 +438,31 @@ def main():
                             node.quaternion.slerp(q, 0.1); 
                         }}
                         
-                        // --- PRO HAND SOLVER: SWING-TWIST & PALM NORMAL ---
+                        // --- SIMPLIFIED HAND SOLVER: Direction-Based (matches VRM bone hierarchy) ---
                         function solveHandOrientation(node, p_wrist, p_index, p_middle, p_pinky, side) {{
-                           if (!node || !p_wrist || !p_index || !p_middle || !p_pinky) return;
+                           if (!node || !p_wrist || !p_middle) return;
                            
+                           // Convert to VRM coordinate space (flip Y and Z)
                            const toVec3 = (a) => new THREE.Vector3(a[0], -a[1], -a[2]);
                            
                            const vWrist = toVec3(p_wrist);
-                           const vIndex = toVec3(p_index);
                            const vMiddle = toVec3(p_middle);
-                           const vPinky = toVec3(p_pinky);
 
-                           // Stability Check: If hand is a Fist or undefined (Index close to Pinky), skip twist
-                           if (vIndex.distanceTo(vPinky) < 0.02) return;
-
-                           // 1. Hand Axis (Direction)
+                           // Hand Direction: Wrist -> Middle finger base
                            const vDir = new THREE.Vector3().subVectors(vMiddle, vWrist);
-                           // 2. Hand Width (Index to Pinky)
-                           const vWidth = new THREE.Vector3().subVectors(vIndex, vPinky);
-
-                           if (vDir.lengthSq() < 0.0001 || vWidth.lengthSq() < 0.0001) return;
+                           
+                           // Stability Check
+                           if (vDir.lengthSq() < 0.0001) return;
                            vDir.normalize();
-                           vWidth.normalize();
 
-                           // 3. Palm Normal
-                           const vNormal = new THREE.Vector3().crossVectors(vDir, vWidth).normalize();
+                           // VRM T-Pose: Left hand points +X, Right hand points -X
+                           const defaultDir = new THREE.Vector3(side === 'left' ? 1 : -1, 0, 0);
+                           
+                           // Calculate rotation from default to target
+                           const q = new THREE.Quaternion().setFromUnitVectors(defaultDir, vDir);
 
-                           // 4. Matrix Basis Construction
-                           const matrix = new THREE.Matrix4();
-                           if (side === 'left') {{
-                               matrix.makeBasis(vWidth, vNormal, vDir);
-                           }} else {{
-                               const vWidthRight = vWidth.clone().negate();
-                               matrix.makeBasis(vWidthRight, vNormal, vDir);
-                           }}
-
-                           const qFinal = new THREE.Quaternion().setFromRotationMatrix(matrix);
-
-                           // SMOOTHING: Slower hand to avoid "Twitchy" wrists
-                           node.quaternion.slerp(qFinal, 0.15);
+                           // Apply smoothly
+                           node.quaternion.slerp(q, 0.2);
                         }}
                         
                         // --- NEUTRAL POSE (REST) ---
