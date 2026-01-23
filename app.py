@@ -220,15 +220,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Vocabulary Mapping (Optimized for Internal Library Sync)
-# Vocabulary Mapping (Optimized for Internal Library Sync)
 PSL_VOCABULARY = {
     # Base Tokens (Urdu)
     "apple": "سیب", "world": "دنيا", "good": "اچھا", "hello": "ہیلو",
-    "salam": "سلام", "water": "پانی", "food": "کھانا", "school": "اسكول",
-    # Direct Phonetic Mapping (Arabic/Urdu variants)
-    "هللو": "ہیلو", "هالو": "ہیلو", "هالو": "ہیلو", "هلو": "ہیلو", "هاللو": "ہیلو",
-    "ورلد": "دنيا", "وورلد": "دنيا", "وورد": "دنيا",
-    "ابل": "سیب", "جود": "اچھا", "ووتر": "پانی", "فود": "کھانا", "سكول": "اسكول"
+    "salam": "سلام", "water": "پانی", "food": "کھانا", "school": "اسكول"
 }
 
 # App Data Paths
@@ -309,6 +304,7 @@ def main():
     # --- CLEAN UI ---
     st.sidebar.success("💎 **Rigging Standard:** Elite Studio v2.0")
     st.sidebar.info("🖥️ **Mode:** Forced Desktop (Computer View)")
+    flip_opt = st.sidebar.checkbox("Flip Avatar (180°)", value=False)
     
     def preprocess_text(text, vocab):
         """Refined Lemmatizer: Specifically tuned for PSL/Urdu structures."""
@@ -389,26 +385,17 @@ def main():
                         try:
                             status_placeholder.info(f"🔍 Processing: **{w}**")
                             
-                            # CRITICAL FIX: The phonetic tokens now map directly to Urdu values.
-                            # The engine can infer signs for "ہیلو", "دنيا", etc.
-                            token = PSL_VOCABULARY[w]
-                            clip = translator.translate(token)
+                            # Standard synthesis using Urdu mapping
+                            urdu_token = PSL_VOCABULARY[w]
+                            clip = translator.translate(urdu_token)
                             
                             if clip is None or len(clip) == 0:
-                                # Try original key as fallback (e.g. if it was already English)
+                                # Fallback to English key
                                 clip = translator.translate(w)
 
                             if clip is not None and len(clip) > 0:
                                 v_clips.append(clip)
-                                # For DNA retrieval, we need the base english key if it was an alias
-                                # Find the key in PSL_VOCABULARY that has this urdu token
-                                base_key = w
-                                for k, v in PSL_VOCABULARY.items():
-                                    if v == token and k in ["apple", "world", "good", "hello", "salam", "water", "food", "school"]:
-                                        base_key = k
-                                        break
-                                
-                                dna = core.get_word_dna(base_key)
+                                dna = core.get_word_dna(w)
                                 if dna is not None:
                                     dna_list.append(dna)
                                     status_placeholder.success(f"✅ DNA for **{w}** ready.")
@@ -527,6 +514,7 @@ def main():
                         import { VRMLoaderPlugin, VRMUtils } from 'https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@2.0.6/lib/three-vrm.module.js';
 
                         const DNA = VAR_DNA_DATA;
+                        const VAR_FLIP_AVATAR = VAR_FLIP_VAL;
                         let vrm, frameIdx = 0;
                         const canvas = document.getElementById('canvas');
                         const scene = new THREE.Scene();
@@ -563,8 +551,10 @@ def main():
                                         if (obj.material.emissive) obj.material.emissiveIntensity = 0.2;
                                     }
                                 });
-                                // Force standard "Elite" calibration (Forward facing)
-                                vrm.scene.rotation.y = Math.PI;
+                                // Manual Flip Control
+                                if (VAR_FLIP_AVATAR) {
+                                    vrm.scene.rotation.y = Math.PI;
+                                }
                                 scene.add(vrm.scene);
                                 document.getElementById('status').textContent = 'Konecta Rep Online';
                             }, null, e => { 
@@ -686,7 +676,8 @@ def main():
                     """.replace("VAR_WORDS", ' '.join(words)) \
                        .replace("VAR_DNA_LEN", str(len(dna_json))) \
                        .replace("VAR_DNA_DATA", json.dumps(dna_json)) \
-                       .replace("VAR_VRM_BASE64", vrm_base64)
+                       .replace("VAR_VRM_BASE64", vrm_base64) \
+                       .replace("VAR_FLIP_VAL", "true" if flip_opt else "false")
                     
                     st.components.v1.html(html_component, height=550)
                     st.caption(f"🎬 DNA Stream Active | **{' '.join(words)}**")
