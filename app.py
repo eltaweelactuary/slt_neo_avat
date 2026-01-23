@@ -15,13 +15,12 @@ import json
 # ==============================================================================
 WRITABLE_BASE = os.path.join(tempfile.gettempdir(), "slt_persistent_storage")
 
-# Recovery: We use sys._slt_orig to store the absolute original functions
+# Recovery: Capture absolute original functions once and preserve them in sys
 if not hasattr(sys, "_slt_orig"):
-    # ULTIMATE ESCAPE HATCH: io.open is a builtin that avoids builtins.open patch
     sys._slt_orig = {
         "makedirs": os.makedirs,
         "mkdir": os.mkdir,
-        "open": io.open, 
+        "open": io.open,  # io.open is a safe, unpatched fallback
         "rename": os.rename,
         "replace": os.replace,
         "exists": os.path.exists,
@@ -41,22 +40,38 @@ _orig_listdir  = sys._slt_orig["listdir"]
 # Thread-local recursion guard
 _slt_tls = threading.local()
 
+def _ensure_parent(path):
+    """Ensures parent directory exists for writable storage."""
+    try:
+        parent = os.path.dirname(path)
+        if parent and not _orig_exists(parent):
+            _orig_makedirs(parent, exist_ok=True)
+    except:
+        pass
+
 def _redirect_path(path, is_write=False):
     if not path: return path
-    p = str(path).replace("\\", "/")
-    if "site-packages/sign_language_translator" in p:
-        parts = p.split("site-packages/sign_language_translator/")
-        rel = parts[1] if len(parts) > 1 else ""
+    p_str = str(path).replace("\\", "/")
+    
+    # 1. Internal library redirection (site-packages -> /tmp)
+    if "sign_language_translator" in p_str and "site-packages" in p_str:
+        rel = p_str.split("sign_language_translator/")[-1]
         shadow = os.path.join(WRITABLE_BASE, rel)
-        if is_write or _orig_exists(shadow):
-            parent = os.path.dirname(shadow)
-            if parent and not _orig_exists(parent):
-                _orig_makedirs(parent, exist_ok=True)
+        if is_write:
+            _ensure_parent(shadow)
             return shadow
+        if _orig_exists(shadow):
+            return shadow
+    
+    # 2. General write protection: Ensure parent exists for any write in WRITABLE_BASE
+    if p_str.startswith(WRITABLE_BASE.replace("\\", "/")) and is_write:
+        _ensure_parent(p_str)
+        
     return path
 
 def _patched_open(file, *args, **kwargs):
-    if getattr(_slt_tls, 'active', False): return _orig_open(file, *args, **kwargs)
+    if getattr(_slt_tls, 'active', False): 
+        return _orig_open(file, *args, **kwargs)
     _slt_tls.active = True
     try:
         mode = args[0] if args else kwargs.get('mode', 'r')
@@ -66,15 +81,16 @@ def _patched_open(file, *args, **kwargs):
         _slt_tls.active = False
 
 def _patched_exists(path):
-    if getattr(_slt_tls, 'active', False): return _orig_exists(path)
+    if getattr(_slt_tls, 'active', False): 
+        return _orig_exists(path)
     _slt_tls.active = True
     try:
-        p = _redirect_path(path)
-        return _orig_exists(p) or _orig_exists(path)
+        target = _redirect_path(path)
+        return _orig_exists(target) or _orig_exists(path)
     finally:
         _slt_tls.active = False
 
-# Apply surgical patches
+# Apply surgical patches (using lambdas for simple cases to keep code clear)
 os.makedirs = lambda n, *a, **k: _orig_makedirs(_redirect_path(n, True), *a, **k)
 os.mkdir    = lambda p, *a, **k: _orig_mkdir(_redirect_path(p, True), *a, **k)
 builtins.open = _patched_open
@@ -84,11 +100,11 @@ os.path.exists = _patched_exists
 os.path.isfile = lambda p: _orig_isfile(_redirect_path(p))
 os.listdir  = lambda p: _orig_listdir(_redirect_path(p))
 
+# Ensure WRITABLE_BASE exists
 if not _orig_exists(WRITABLE_BASE):
     _orig_makedirs(WRITABLE_BASE, exist_ok=True)
 
 # --- GOOGLE CLOUD SERVICE ACCOUNT INTEGRATION ---
-# If service_account JSON is in st.secrets, activate it
 if "gcp_service_account" in st.secrets:
     gcp_json_path = os.path.join(WRITABLE_BASE, "gcp_credentials.json")
     with _orig_open(gcp_json_path, "w") as f:
