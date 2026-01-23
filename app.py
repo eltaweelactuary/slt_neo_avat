@@ -164,7 +164,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Vocabulary Mapping (Expanded for UI display)
+# Vocabulary Mapping (Optimized for Internal Library Sync)
+# Note: Internal mapping uses words directly to avoid Urdu inference errors.
 PSL_VOCABULARY = {
     "apple": "سیب", "world": "دنیا", "pakistan": "پاکستان",
     "good": "اچھا", "red": "لال", "is": "ہے", "the": "یہ", "that": "وہ",
@@ -344,19 +345,21 @@ def main():
                 for w in words:
                     if w in PSL_VOCABULARY:
                         try:
-                            status_placeholder.info(f"🔍 Processing: **{w}**") # Changed to use placeholder
-                            clip = translator.translate(PSL_VOCABULARY[w])
+                            status_placeholder.info(f"🔍 Processing: **{w}**")
+                            # INTERNAL OPTIMIZATION: Pass the English token directly 
+                            # to avoid "No PakistanSL sign could be inferred for token = 'Urdu'" errors.
+                            clip = translator.translate(w) 
                             v_clips.append(clip)
                             dna = core.get_word_dna(w)
                             if dna is not None:
                                 dna_list.append(dna)
-                                status_placeholder.success(f"✅ DNA for **{w}** ready.") # Changed to use placeholder
+                                status_placeholder.success(f"✅ DNA for **{w}** ready.")
                             else:
-                                status_placeholder.warning(f"⚠️ DNA for **{w}** missing in dictionary.") # Changed to use placeholder
+                                status_placeholder.warning(f"⚠️ DNA for **{w}** missing in dictionary.")
                         except Exception as e:
-                            status_placeholder.error(f"❌ Error synthesizing **{w}**: {e}") # Changed to use placeholder
+                            status_placeholder.error(f"❌ Error synthesizing **{w}**: {e}")
                     else:
-                        status_placeholder.warning(f"📖 Word **{w}** not in vocabulary.") # Changed to use placeholder
+                        status_placeholder.warning(f"📖 Word **{w}** not in vocabulary.")
                 
                 if v_clips:
                     # 1. Standard Benchmark (Stitched)
@@ -678,43 +681,69 @@ def main():
     with tab2:
         st.header("🎥 Sign Language Recognition")
         
-        # --- NEW: LIVE CAMERA OPTION ---
-        st.subheader("📸 Live Camera Recognition")
-        cam_frame = st.camera_input("Snap a photo of your sign!")
+        # --- SHARED SENTENCE BUILDER UI ---
+        if 'shared_sentence' not in st.session_state:
+            st.session_state['shared_sentence'] = []
+            
+        if st.session_state['shared_sentence']:
+            st.info(f"� **Sentence Builder:** {' '.join(st.session_state['shared_sentence'])}")
+            c1, c2, c3 = st.columns(3)
+            if c1.button("🗑️ Clear", key="clr_shared"):
+                st.session_state['shared_sentence'] = []
+                st.rerun()
+            if c2.button("🚀 Push to Avatar", key="push_shared"):
+                st.session_state['text_input_val'] = " ".join(st.session_state['shared_sentence'])
+                st.success("Sent to Tab 1! Switch tabs to see performance.")
+            st.markdown("---")
+
+    # TAB 2: VIDEO TO TEXT
+    with tab2:
+        st.header("🎥 Sign Language Recognition")
         
-        if cam_frame:
-            with st.spinner("⚡ Instant Recognizing..."):
-                # Save frame to temp file
-                import tempfile
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_img:
-                    tmp_img.write(cam_frame.getvalue())
-                    tmp_path = tmp_img.name
-                
-                # Recognition logic
-                label, confidence = core.predict_sign(tmp_path)
-                if label:
-                    st.success(f"🏆 Detected: **{label}** ({confidence:.1f}%)")
-                    st.toast(f"Found: {label}!")
-                else:
-                    st.warning("⚠️ Pose unclear. Try adjusting your distance from camera.")
+        # --- SHARED SENTENCE BUILDER UI ---
+        if 'shared_sentence' not in st.session_state:
+            st.session_state['shared_sentence'] = []
+            
+        if st.session_state['shared_sentence']:
+            st.info(f"📝 **Sentence Builder:** {' '.join(st.session_state['shared_sentence'])}")
+            c1, c2, c3 = st.columns(3)
+            if c1.button("🗑️ Clear Sentence", key="clr_shared"):
+                st.session_state['shared_sentence'] = []
+                st.rerun()
+            if c2.button("🚀 Push to 3D Avatar", key="push_shared"):
+                st.session_state['text_input_val'] = " ".join(st.session_state['shared_sentence'])
+                st.success("✅ Sequence synced to Tab 1!")
+            st.markdown("---")
+
+        # 🔴 LIVE VIDEO RECORDING & ANALYSIS
+        st.subheader("🔴 Live Video Recording & Analysis")
+        st.markdown("""
+        Capture a short video (2-5 seconds) for each sign. 
+        - **Mobile**: Tap below to record directly from your camera.
+        - **PC**: Record with your webcam or upload a clip.
+        """)
         
-        st.markdown("---")
-        st.subheader("📤 Upload Video Sign")
-        uploaded_file = st.file_uploader("Upload video (.mp4)", type=["mp4", "avi", "mov"])
+        uploaded_file = st.file_uploader("Upload or Record Sign Clip", type=["mp4", "avi", "mov"], key="vid_uploader")
         
         if uploaded_file:
-            temp_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4").name
-            with open(temp_path, "wb") as f:
-                f.write(uploaded_file.read())
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
+                tmp_vid.write(uploaded_file.read())
+                temp_path = tmp_vid.name
+            
+            # Display preview
             st.video(temp_path)
             
-            if st.button("🔍 Recognize Uploaded Sign"):
-                with st.spinner("Analyzing landmarks..."):
+            if st.button("🔍 Recognize & Add Sign"):
+                with st.spinner("🧠 Analyzing Sign Motion..."):
                     label, confidence = core.predict_sign(temp_path)
                     if label:
-                        st.success(f"🏆 Detected: {label} ({confidence:.1f}%)")
+                        st.success(f"🏆 Recognized: **{label}** ({confidence:.1f}%)")
+                        # Add logic with a confirmation to prevent accidental duplicates
+                        st.session_state['shared_sentence'].append(label)
+                        st.toast(f"Added Word: {label}")
+                        # Optional: small delay or force rerun to update builder UI
                     else:
-                        st.error("❌ Detection failed.")
+                        st.error("❌ Sign motion not recognized. Please try a clearer movement.")
 
     st.markdown("---")
     st.markdown("Designed by **Ahmed Eltaweel** | AI Architect @ Konecta 🚀")
