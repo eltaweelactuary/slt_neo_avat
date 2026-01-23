@@ -1,75 +1,45 @@
-import os
-import time
-import builtins
-import tempfile
-import streamlit as st
-import shutil
-import cv2
 import sys
-import threading
 import io
+import json
 
 # ==============================================================================
 # --- CRITICAL: GLOBAL MONKEYPATCH FOR STREAMLIT CLOUD PERMISSIONS ---
 # ==============================================================================
 WRITABLE_BASE = os.path.join(tempfile.gettempdir(), "slt_persistent_storage")
 
-# Recursion Guard: Thread-local flag to break loops in monkeypatches
-if not hasattr(sys, "_slt_guard"):
-    sys._slt_guard = threading.local()
-
-def _is_guarded():
-    try:
-        return getattr(sys._slt_guard, "active", False)
-    except:
-        return False
-
-def _set_guarded(val):
-    try:
-        sys._slt_guard.active = val
-    except:
-        pass
-
-# Original Function Recovery: Persistent singleton across Streamlit reruns
+# Recovery: We use sys._slt_orig to store the absolute original functions
 if not hasattr(sys, "_slt_orig"):
-    sys._slt_orig = {}
+    # ULTIMATE ESCAPE HATCH: io.open is a builtin that avoids builtins.open patch
+    sys._slt_orig = {
+        "makedirs": os.makedirs,
+        "mkdir": os.mkdir,
+        "open": io.open, 
+        "rename": os.rename,
+        "replace": os.replace,
+        "exists": os.path.exists,
+        "isfile": os.path.isfile,
+        "listdir": os.listdir
+    }
 
-def _get_orig(name, current_val):
-    # Only save if we don't have it OR if the saved version is a patch (recovery)
-    if name not in sys._slt_orig or sys._slt_orig[name].__name__.startswith("_patched_"):
-        if not current_val.__name__.startswith("_patched_"):
-            sys._slt_orig[name] = current_val
-    return sys._slt_orig.get(name, current_val)
+_orig_makedirs = sys._slt_orig["makedirs"]
+_orig_mkdir    = sys._slt_orig["mkdir"]
+_orig_open     = sys._slt_orig["open"]
+_orig_rename   = sys._slt_orig["rename"]
+_orig_replace  = sys._slt_orig["replace"]
+_orig_exists   = sys._slt_orig["exists"]
+_orig_isfile   = sys._slt_orig["isfile"]
+_orig_listdir  = sys._slt_orig["listdir"]
 
-# Safety Fallback: Use io.open as the ultimate original open
-if "open" not in sys._slt_orig:
-    sys._slt_orig["open"] = io.open
+# Thread-local recursion guard
+_slt_tls = threading.local()
 
-_orig_makedirs = _get_orig("makedirs", os.makedirs)
-_orig_mkdir    = _get_orig("mkdir", os.mkdir)
-_orig_open     = _get_orig("open", builtins.open)
-_orig_rename   = _get_orig("rename", os.rename)
-_orig_replace  = _get_orig("replace", os.replace)
-_orig_exists   = _get_orig("exists", os.path.exists)
-_orig_isfile   = _get_orig("isfile", os.path.isfile)
-_orig_listdir  = _get_orig("listdir", os.listdir)
-
-# Ensure WRITABLE_BASE exists (using original to avoid triggering patches prematurely)
-if not _orig_exists(WRITABLE_BASE):
-    _orig_makedirs(WRITABLE_BASE, exist_ok=True)
-
-def _get_shadow_path(path):
+def _redirect_path(path, is_write=False):
     if not path: return path
     p = str(path).replace("\\", "/")
     if "site-packages/sign_language_translator" in p:
         parts = p.split("site-packages/sign_language_translator/")
         rel = parts[1] if len(parts) > 1 else ""
-        return os.path.join(WRITABLE_BASE, rel)
-    return None
-
-def _redirect_read_write(path, is_write=False):
-    shadow = _get_shadow_path(path)
-    if shadow:
+        shadow = os.path.join(WRITABLE_BASE, rel)
         if is_write or _orig_exists(shadow):
             parent = os.path.dirname(shadow)
             if parent and not _orig_exists(parent):
@@ -77,87 +47,47 @@ def _redirect_read_write(path, is_write=False):
             return shadow
     return path
 
-def _patched_makedirs(name, mode=0o777, exist_ok=False):
-    if _is_guarded(): return _orig_makedirs(name, mode, exist_ok)
-    _set_guarded(True)
-    try:
-        return _orig_makedirs(_redirect_read_write(name, is_write=True), mode, exist_ok)
-    finally:
-        _set_guarded(False)
-
-def _patched_mkdir(path, mode=0o777, *args, **kwargs):
-    if _is_guarded(): return _orig_mkdir(path, mode, *args, **kwargs)
-    _set_guarded(True)
-    try:
-        return _orig_mkdir(_redirect_read_write(path, is_write=True), mode, *args, **kwargs)
-    finally:
-        _set_guarded(False)
-
 def _patched_open(file, *args, **kwargs):
-    if _is_guarded(): return _orig_open(file, *args, **kwargs)
-    _set_guarded(True)
+    if getattr(_slt_tls, 'active', False): return _orig_open(file, *args, **kwargs)
+    _slt_tls.active = True
     try:
         mode = args[0] if args else kwargs.get('mode', 'r')
         is_write = any(m in mode for m in ('w', 'a', '+', 'x'))
-        return _orig_open(_redirect_read_write(file, is_write=is_write), *args, **kwargs)
+        return _orig_open(_redirect_path(file, is_write=is_write), *args, **kwargs)
     finally:
-        _set_guarded(False)
-
-def _patched_rename(src, dst, *args, **kwargs):
-    if _is_guarded(): return _orig_rename(src, dst, *args, **kwargs)
-    _set_guarded(True)
-    try:
-        return _orig_rename(_redirect_read_write(src), _redirect_read_write(dst, is_write=True), *args, **kwargs)
-    finally:
-        _set_guarded(False)
-
-def _patched_replace(src, dst, *args, **kwargs):
-    if _is_guarded(): return _orig_replace(src, dst, *args, **kwargs)
-    _set_guarded(True)
-    try:
-        return _orig_replace(_redirect_read_write(src), _redirect_read_write(dst, is_write=True), *args, **kwargs)
-    finally:
-        _set_guarded(False)
+        _slt_tls.active = False
 
 def _patched_exists(path):
-    if _is_guarded(): return _orig_exists(path)
-    _set_guarded(True)
+    if getattr(_slt_tls, 'active', False): return _orig_exists(path)
+    _slt_tls.active = True
     try:
-        shadow = _get_shadow_path(path)
-        if shadow and _orig_exists(shadow): return True
-        return _orig_exists(path)
+        p = _redirect_path(path)
+        return _orig_exists(p) or _orig_exists(path)
     finally:
-        _set_guarded(False)
+        _slt_tls.active = False
 
-def _patched_isfile(path):
-    if _is_guarded(): return _orig_isfile(path)
-    _set_guarded(True)
-    try:
-        shadow = _get_shadow_path(path)
-        if shadow and _orig_isfile(shadow): return True
-        return _orig_isfile(path)
-    finally:
-        _set_guarded(False)
-
-def _patched_listdir(path):
-    if _is_guarded(): return _orig_listdir(path)
-    _set_guarded(True)
-    try:
-        return _orig_listdir(_redirect_read_write(path))
-    finally:
-        _set_guarded(False)
-
-# Apply global patches
-os.makedirs = _patched_makedirs
-os.mkdir = _patched_mkdir
+# Apply surgical patches
+os.makedirs = lambda n, *a, **k: _orig_makedirs(_redirect_path(n, True), *a, **k)
+os.mkdir    = lambda p, *a, **k: _orig_mkdir(_redirect_path(p, True), *a, **k)
 builtins.open = _patched_open
-os.rename = _patched_rename
-os.replace = _patched_replace
+os.rename   = lambda s, d, *a, **k: _orig_rename(_redirect_path(s), _redirect_path(d, True), *a, **k)
+os.replace  = lambda s, d, *a, **k: _orig_replace(_redirect_path(s), _redirect_path(d, True), *a, **k)
 os.path.exists = _patched_exists
-os.path.isfile = _patched_isfile
-os.listdir = _patched_listdir
+os.path.isfile = lambda p: _orig_isfile(_redirect_path(p))
+os.listdir  = lambda p: _orig_listdir(_redirect_path(p))
 
-# --- ENCODING FIX: Standard Linux/Streamlit lack H.264 encoder ---
+if not _orig_exists(WRITABLE_BASE):
+    _orig_makedirs(WRITABLE_BASE, exist_ok=True)
+
+# --- GOOGLE CLOUD SERVICE ACCOUNT INTEGRATION ---
+# If service_account JSON is in st.secrets, activate it
+if "gcp_service_account" in st.secrets:
+    gcp_json_path = os.path.join(WRITABLE_BASE, "gcp_credentials.json")
+    with _orig_open(gcp_json_path, "w") as f:
+        json.dump(dict(st.secrets["gcp_service_account"]), f)
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = gcp_json_path
+
+# --- ENCODING FIX ---
 import subprocess
 
 def _optimize_video_for_web(path):
