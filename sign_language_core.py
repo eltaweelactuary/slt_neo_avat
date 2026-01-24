@@ -258,6 +258,15 @@ class SignLanguageCore:
             return np.load(path)
         return None
 
+    def get_available_words(self):
+        """Returns list of words that have valid landmark files (i.e., can be used)."""
+        available = []
+        for word in self.vocabulary.keys():
+            path = self.landmarks_dir / f"{word}.npy"
+            if path.exists():
+                available.append(word)
+        return available
+
     def export_dna_json(self, dna_sequence):
         """Converts a numpy DNA sequence into a JSON-friendly list of dictionaries for 3D rigging."""
         if dna_sequence is None: return None

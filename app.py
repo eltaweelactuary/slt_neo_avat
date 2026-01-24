@@ -383,12 +383,15 @@ def main():
 
         text_input = st.text_input("Enter text (English):", value=st.session_state['text_input_val'], placeholder="e.g., hello world", key="main_input")
         
-        # Word Display Grid
-        st.markdown("**📖 Supported Vocabulary:**")
-        cols = st.columns(4)
-        base_keys = ["apple", "world", "good", "hello", "salam", "water", "food", "school"]
-        for i, k in enumerate(base_keys):
-            cols[i%4].code(k)
+        # Word Display Grid - Only show words that have valid landmarks
+        available_words = core.get_available_words()
+        if available_words:
+            st.markdown("**📖 Available Vocabulary:**")
+            cols = st.columns(4)
+            for i, k in enumerate(available_words):
+                cols[i%4].code(k)
+        else:
+            st.warning("⚠️ No vocabulary available yet. First run will download and build landmarks.")
         
         col1, col2 = st.columns([1, 1])
         with col1:
@@ -417,38 +420,40 @@ def main():
                 status_placeholder = st.empty() # Added for dynamic status updates
                 for w in words:
                     if w in PSL_VOCABULARY:
+                        # First check if DNA exists locally (most efficient)
+                        dna = core.get_word_dna(w)
+                        if dna is None:
+                            status_placeholder.warning(f"⚠️ Word **{w}** not in landmarks. Skipping.")
+                            continue
+                        
                         try:
                             status_placeholder.info(f"🔍 Processing: **{w}**")
                             
-                            # ROBUST SYNTHESIS: Try English key first (Native to library)
-                            # This fixes the "token = 'ہیلو'" inference error.
+                            # Use Urdu token directly (library's native format)
+                            urdu_token = PSL_VOCABULARY[w]
                             try:
-                                clip = translator.translate(w)
+                                clip = translator.translate(urdu_token)
                             except:
                                 clip = None
                             
                             if clip is None or len(clip) == 0:
-                                # Fallback to Urdu token if English fails
+                                # Fallback to English key
                                 try:
-                                    urdu_token = PSL_VOCABULARY[w]
-                                    clip = translator.translate(urdu_token)
+                                    clip = translator.translate(w)
                                 except:
                                     clip = None
 
                             if clip is not None and len(clip) > 0:
                                 v_clips.append(clip)
-                                dna = core.get_word_dna(w)
-                                if dna is not None:
-                                    dna_list.append(dna)
-                                    status_placeholder.success(f"✅ DNA for **{w}** ready.")
-                                else:
-                                    status_placeholder.warning(f"⚠️ DNA for **{w}** missing in dictionary.")
+                                dna_list.append(dna)
+                                status_placeholder.success(f"✅ **{w}** ready.")
                             else:
-                                status_placeholder.error(f"❌ Could not infer sign for word: **{w}**")
+                                status_placeholder.error(f"❌ Could not synthesize video for: **{w}**")
                         except Exception as e:
-                            status_placeholder.error(f"❌ Error synthesizing **{w}**: {e}")
+                            status_placeholder.error(f"❌ Error processing **{w}**: {e}")
                     else:
-                        status_placeholder.warning(f"📖 Word **{w}** not in vocabulary.")
+                        # Word was filtered out by NLP or not in vocab
+                        pass
                 
                 if v_clips:
                     # 1. Standard Benchmark (Stitched)
