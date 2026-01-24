@@ -1,3 +1,8 @@
+"""
+Konecta SLT Platform: Digital Human Interface v2.0
+Enterprise-grade bidirectional translation between Text/Speech and Pakistani Sign Language (PSL).
+"""
+
 import os
 import time
 import builtins
@@ -11,7 +16,7 @@ import io
 import json
 
 # ==============================================================================
-# --- CRITICAL: GLOBAL MONKEYPATCH FOR STREAMLIT CLOUD PERMISSIONS ---
+# --- SYSTEM COMPATIBILITY LAYER: TRANSIENT STORAGE & PERMISSIONS ---
 # ==============================================================================
 WRITABLE_BASE = os.path.join(tempfile.gettempdir(), "slt_persistent_storage")
 APP_ROOT = os.path.abspath(os.getcwd()).replace("\\", "/")
@@ -231,7 +236,11 @@ DATA_DIR = os.path.join(WRITABLE_BASE, "app_internal_data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 @st.cache_resource
-def get_slt_core():
+def get_slt_core_v2():
+    """
+    Singleton provider for the SignLanguageCore engine.
+    Implements v2 architecture for skeletal DNA synthesis.
+    """
     core = SignLanguageCore(data_dir=DATA_DIR)
     core.load_core()
     return core
@@ -282,7 +291,7 @@ def main():
     
     with st.spinner("⏳ Loading SLT Core & Avatar Engine..."):
         translator, slt = load_slt_engine()
-        core = get_slt_core()
+        core = get_slt_core_v2()
         renderer = get_avatar_renderer()
     
     if not load_or_train_core(core, translator):
