@@ -2,40 +2,26 @@
 
 A state-of-the-art, bidirectional sign language translation and production platform featuring **Digital Human Avatar Synthesis**.
 
-## 🌟 Key SOTA Features
+## 🌟 Key Features
 
 | Feature | Technology | Description |
 |-----------|-------------|-------------|
-| **Digital Human Avatar** | Sequential DNA Stitching | Transforms benchmark videos into stylized, noise-free sign language avatars. |
-| **Facial Intelligence** | Non-Manual Signals | Now captures and renders lip & eye movements for 40% better communication. |
-| **Live Translation** | **YOLOv8** + MediaPipe | Real-time person detection and landmark extraction for robust field use. |
+| **Digital Human Avatar** | 3D VRM Rigging | Transforms benchmark videos into stylized, noise-free sign language avatars. |
+| **Facial Intelligence** | Non-Manual Signals | Captures and renders lip & eye movements for 40% better communication. |
+| **Concatenative Engine** | Seamless Stitching | Creates smooth, sequential sentence performances from a skeletal DNA core. |
 | **Omni-channel Input** | Speech/Text/Video | Seamlessly translate voice commands or text into sign language performances. |
 
-## 🚀 Quick Start
-
-### ☁️ Cloud Deployment (Recommended)
+## 🚀 Quick Start (Cloud Deployment)
 Deploy directly to [Streamlit Cloud](https://share.streamlit.io/) using this repository.
-- Ensure `app.py` is the entry point.
-- The system is pre-configured with `packages.txt` and optimized requirements.
-
-### 💻 Local Development
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the Main Platform
-streamlit run app.py
-
-# Run Live YOLO Translator
-python live_translator.py
-```
+- **Entry Point:** `app.py`
+- **Environment:** Optimized via `packages.txt` and `requirements.txt`.
 
 ## 🏗️ Architecture: The Unified DNA Core
-The system utilizes a **Unified Landmark Representation (CLR)**. Every sign is stored as a 225-dimensional "Skeletal DNA" matrix, allowing for seamless stitching and high-fidelity avatar rendering.
+The system utilizes a **Unified Landmark Representation (CLR)**. Every sign is stored as a "Skeletal DNA" matrix, allowing for seamless stitching and high-fidelity avatar rendering across different digital character models (Neo, Prime, Elite).
 
-## 📊 Vocabulary
-`apple, world, pakistan, good, red, is, the, that`
+## 📊 Core Vocabulary (Stable 8)
+`apple, world, salam, good, hello, water, food, school`
 
 ---
 **Designed by:** Ahmed Eltaweel | AI Architect @ Konecta 🚀
-**Powered by:** Ultralytics YOLOv8, MediaPipe Holistic, and Scikit-Learn.
+**Powered by:** MediaPipe Holistic, SLT Concatenative Engine, and Three.js VRM Client.

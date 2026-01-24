@@ -262,23 +262,11 @@ def load_or_train_core(core, translator):
     core.build_landmark_dictionary(translator)
     st.info("🧠 Training CLR Core Brain (v2 Matrix)...")
     if core.train_core():
-        print("🚀 SLT Core Brain Training Complete!")
-        st.success("✅ Core Model trained successfully.")
         return True
     return False
 
 def main():
-    # ==== FORCE CACHE CLEAR: Delete old landmarks to trigger re-extraction ====
-    # This ensures the new Face Mesh expression logic is applied
-    cache_path = os.path.join(WRITABLE_BASE, "app_internal_data", "landmarks")
-    model_path = os.path.join(WRITABLE_BASE, "app_internal_data", "models")
-    if os.path.exists(cache_path):
-        import shutil
-        shutil.rmtree(cache_path, ignore_errors=True)
-        if os.path.exists(model_path):
-            shutil.rmtree(model_path, ignore_errors=True)
-        print("🗑️ CACHE CLEARED - Landmarks & Model will rebuild on this run")
-    # ============================================================================
+    # App UI Initialization
     
     st.title("🤟 Sign Language Translator")
     st.markdown("**Bidirectional Translation:** Text ↔ Pakistani Sign Language (PSL)")

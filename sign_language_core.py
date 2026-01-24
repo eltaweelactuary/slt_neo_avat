@@ -20,12 +20,8 @@ class SignLanguageCore:
         self.model_path = self.models_dir / "clr_model_v2.pkl" # Renamed model path
         
         # Create directories
-        try:
-            self.videos_dir.mkdir(parents=True, exist_ok=True)
-            self.landmarks_dir.mkdir(parents=True, exist_ok=True)
-            self.models_dir.mkdir(parents=True, exist_ok=True) # Create models directory
-        except Exception as e:
-            print(f"Warning: Could not create directories in {self.data_dir}: {e}")
+        except:
+            pass
         
         # MediaPipe Setup
         self.mp_holistic = mp.solutions.holistic
@@ -135,29 +131,18 @@ class SignLanguageCore:
 
     def build_landmark_dictionary(self, translator):
         """Build the CLR Dictionary with Full Temporal Sequences"""
-        print(f"🏗️ Building Temporal Landmark Dictionary for {len(self.vocabulary)} words...")
         for word, urdu in self.vocabulary.items():
             temp_v = self.videos_dir / f"{word}.mp4"
             if not temp_v.exists():
-                print(f"📥 Downloading video for: {word}...")
                 try:
                     clip = translator.translate(urdu)
                     clip.save(str(temp_v), overwrite=True)
-                    print(f"💾 Saved video to {temp_v}")
-                except Exception as e:
-                    print(f"❌ Failed to translate/save '{word}': {e}")
+                except:
                     continue
             
-            print(f"🎥 Extracting landmarks for: {word}...")
-            sequence = self.extract_landmarks_from_video(temp_v, return_sequence=True)
             if sequence is not None:
-                print(f"✨ Detected {len(sequence)} frames of landmarks for '{word}'.")
                 self.landmark_dict[word] = sequence
                 np.save(self.landmarks_dir / f"{word}.npy", sequence)
-            else:
-                print(f"⚠️ No landmarks detected for '{word}'.")
-        
-        print(f"✅ Temporal Dictionary built with {len(self.landmark_dict)} word sequences.")
 
     def train_core(self):
         """Train the classifier using the Mean of Landmark Dictionary"""
@@ -177,7 +162,6 @@ class SignLanguageCore:
         X_aug = []
         y_aug = []
         
-        print(f"🧬 Generating Synthetic Data Augmentation for {len(self.landmark_dict)} words...")
         for word, seq in self.landmark_dict.items():
             mean_vec = np.mean(seq, axis=0)
             # 1. Original
@@ -195,19 +179,9 @@ class SignLanguageCore:
         X = np.array(X_aug)
         y = np.array(y_aug)
         
-        print(f"🧠 Training SLT Brain on {len(X)} samples (Augmented) with {X.shape[1]} features...")
-        
-        self.label_encoder = LabelEncoder()
-        y_encoded = self.label_encoder.fit_transform(y)
-        
-        self.classifier = RandomForestClassifier(n_estimators=100, max_depth=15, min_samples_split=5, random_state=42)
-        self.classifier.fit(X, y_encoded)
-        
-        print(f"💾 Saving SLT Brain to {self.model_path}...")
         # Save Model
         with open(self.model_path, 'wb') as f:
             pickle.dump((self.classifier, self.label_encoder), f)
-        print("✅ SLT Brain Saved and Ready!")
         return True
 
     def load_core(self):
