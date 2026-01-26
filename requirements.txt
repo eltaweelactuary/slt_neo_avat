@@ -24,6 +24,6 @@ ultralytics>=8.1.0
 
 # Multimodal Perception
 SpeechRecognition>=3.10.0
-PyAudio>=0.2.13
+# PyAudio is removed for Streamlit Cloud compatibility
 streamlit-webrtc>=0.47.0
 av>=11.0.0

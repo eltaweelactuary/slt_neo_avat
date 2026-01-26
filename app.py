@@ -824,22 +824,32 @@ def main():
             if uploaded_file:
                 file_id = f"{uploaded_file.name}_{uploaded_file.size}"
                 
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_vid:
-                    tmp_vid.write(uploaded_file.read())
-                    temp_path = tmp_vid.name
+                # Use a specific temp path for persistence during optimization
+                temp_path = os.path.join(tempfile.gettempdir(), f"upload_{file_id}.mp4")
+                
+                with open(temp_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                
+                # CRITICAL FIX: Optimize mobile video for OpenCV compatibility
+                with st.spinner("🎬 Optimizing Video for Analysis..."):
+                    _optimize_video_for_web(temp_path)
                 
                 st.video(temp_path)
                 
-                if st.button("🔍 Recognize Sign", key="btn_recognize"):
-                    with st.spinner("🧠 Analyzing Sign Motion..."):
-                        label, confidence = core.predict_sign(temp_path)
-                        if label:
-                            result_text = f"🏆 Result: **{label}** ({confidence:.1f}%)"
+                if st.button("🔍 Recognize Sentence", key="btn_recognize"):
+                    with st.spinner("🧠 Analyzing Sign Sequences..."):
+                        labels, confidence = core.predict_sentence(temp_path)
+                        if labels:
+                            sentence = " ".join(labels)
+                            result_text = f"🏆 Sequence: **{sentence}** ({confidence:.1f}%)"
                             st.session_state['last_results'][file_id] = result_text
-                            if label not in st.session_state['shared_sentence']:
-                                st.session_state['shared_sentence'].append(label)
+                            
+                            # Add new words to shared sentence if they aren't already there in order
+                            for label in labels:
+                                if not st.session_state['shared_sentence'] or st.session_state['shared_sentence'][-1] != label:
+                                    st.session_state['shared_sentence'].append(label)
                         else:
-                            st.error("❌ Recognition failed. Please try a clearer video.")
+                            st.error("❌ Recognition failed. Please try a clearer video with distinct pauses between signs.")
                 
                 # Persist result display even after button click
                 if file_id in st.session_state['last_results']:

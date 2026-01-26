@@ -252,6 +252,61 @@ class SignLanguageCore:
         label = self.label_encoder.inverse_transform([max_idx])[0]
         return label, prob[max_idx] * 100
 
+    def predict_sentence(self, video_path, energy_threshold=0.035, silence_padding=5):
+        """
+        Recognition Engine v3.0: Temporal Segmentation for Sentence Analysis.
+        Splits a single video into multiple signs based on motion energy valleys.
+        """
+        if not self.classifier: return ["⚠️ Model not loaded"], 0
+        
+        # 1. Full Sequence Extraction
+        full_sequence = self.extract_landmarks_from_video(video_path, max_frames=200)
+        if full_sequence is None or len(full_sequence) < 10:
+            return None, 0
+
+        # 2. Motion Energy Calculation (Euclidean distance between adjacent frames)
+        # We focus on hand landmarks (features 0-126) for most energy
+        hand_motion = np.diff(full_sequence[:, :126], axis=0)
+        energy = np.linalg.norm(hand_motion, axis=1)
+        
+        # 3. Smoothing (Moving Average)
+        smooth_energy = np.convolve(energy, np.ones(5)/5, mode='same')
+        
+        # 4. Valley Detection (Segmentation)
+        is_moving = smooth_energy > energy_threshold
+        
+        segments = []
+        in_segment = False
+        start_f = 0
+        
+        for i, moving in enumerate(is_moving):
+            if moving and not in_segment:
+                start_f = max(0, i - silence_padding)
+                in_segment = True
+            elif not moving and in_segment:
+                end_f = min(len(full_sequence), i + silence_padding)
+                if (end_f - start_f) > 8: # Minimum 8 frames per word
+                    segments.append(full_sequence[start_f:end_f])
+                in_segment = False
+        
+        # Catch last segment
+        if in_segment:
+            segments.append(full_sequence[start_f:])
+
+        # 5. Iterative Classification
+        results = []
+        total_conf = 0
+        for seg in segments:
+            label, conf = self.predict_from_landmarks(seg)
+            if label and conf > 45: # Filter noise
+                results.append(label)
+                total_conf += conf
+        
+        if not results: return None, 0
+        
+        avg_conf = total_conf / len(results)
+        return results, avg_conf
+
     def get_word_dna(self, word):
         """Retrieve the Skeletal DNA (landmarks) for a specific word"""
         word = word.lower()

@@ -27,6 +27,8 @@ venv/
 
 # MediaPipe & Streamlit
 .streamlit/
+slt_persistent_storage/
+app_internal_data/
 
 # Assets (Optional: Keep model if small, ignore videos if too large)
 # psl_cv_assets/
